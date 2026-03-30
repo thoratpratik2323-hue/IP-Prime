@@ -114,6 +114,19 @@ class DispatchRegistry:
         conn.close()
         return dict(row) if row else None
 
+    def get_recent_for_project(self, project_name: str, max_age_seconds: int = 300) -> dict | None:
+        """Return the most recent completed dispatch for a project if within max_age."""
+        conn = _get_db()
+        cutoff = time.time() - max_age_seconds
+        row = conn.execute(
+            "SELECT * FROM dispatches WHERE project_name LIKE ? AND status = 'completed' "
+            "AND completed_at IS NOT NULL AND completed_at >= ? "
+            "ORDER BY completed_at DESC LIMIT 1",
+            (f"%{project_name}%", cutoff)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
     def get_recent(self, limit: int = 5) -> list[dict]:
         """Get last N dispatches."""
         conn = _get_db()

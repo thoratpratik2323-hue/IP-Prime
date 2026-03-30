@@ -230,6 +230,7 @@ ACTIVE TASKS:
 {active_tasks}
 
 DISPATCHES:
+If the DISPATCHES section shows a recent completed result for a project, DO NOT dispatch again. Use the existing result. Only re-dispatch if the user explicitly asks for a FRESH review or NEW information.
 {dispatch_context}
 
 KNOWN PROJECTS:
@@ -2153,9 +2154,18 @@ async def voice_handler(ws: WebSocket):
                                     target = embedded_action["target"]
                                     if "|||" in target:
                                         proj_name, _, prompt = target.partition("|||")
-                                        asyncio.create_task(
-                                            _execute_prompt_project(proj_name.strip(), prompt.strip(), work_session, ws, history=history)
-                                        )
+                                        proj_name = proj_name.strip()
+                                        prompt = prompt.strip()
+                                        # Check for recent completed dispatch before re-dispatching
+                                        recent = dispatch_registry.get_recent_for_project(proj_name)
+                                        if recent and recent.get("summary"):
+                                            log.info(f"Using recent dispatch result for {proj_name} instead of re-dispatching")
+                                            response_text = recent["summary"]
+                                            history.append({"role": "assistant", "content": f"[Previous dispatch result for {proj_name}]: {recent['summary']}"})
+                                        else:
+                                            asyncio.create_task(
+                                                _execute_prompt_project(proj_name, prompt, work_session, ws, history=history)
+                                            )
                                     else:
                                         log.warning(f"PROMPT_PROJECT missing ||| delimiter: {target}")
                                 elif embedded_action["action"] == "add_task":
