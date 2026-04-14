@@ -76,5 +76,33 @@ async def call_llm(
         )
         return response.content[0].text
     except Exception as e:
-        log.error(f"Anthropic API Error: {e}")
+        log.warning(f"Anthropic API Error: {e}. Trying local Ollama fallback...")
+        
+        # 3. Final Fallback: Local Ollama (Independent of Internet)
+        try:
+            import httpx
+            async with httpx.AsyncClient() as httpx_client:
+                # Format messages for Ollama
+                ollama_messages = []
+                if system:
+                    ollama_messages.append({"role": "system", "content": system})
+                ollama_messages.extend(messages)
+                
+                response = await httpx_client.post(
+                    "http://localhost:11434/api/chat",
+                    json={
+                        "model": "llama3", # Defaulting to llama3
+                        "messages": ollama_messages,
+                        "stream": False,
+                        "options": {"temperature": temperature, "num_predict": max_tokens}
+                    },
+                    timeout=30.0
+                )
+                if response.status_code == 200:
+                    return response.json()["message"]["content"]
+                else:
+                    log.error(f"Ollama Error Status: {response.status_code}")
+        except Exception as ollama_e:
+            log.error(f"Local Ollama Fallback failed: {ollama_e}")
+        
         raise e

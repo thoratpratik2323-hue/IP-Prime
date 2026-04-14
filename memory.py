@@ -70,6 +70,16 @@ def init_db():
             updated_at REAL
         );
 
+        CREATE TABLE IF NOT EXISTS memory_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL,
+            target_id INTEGER NOT NULL,
+            relationship TEXT NOT NULL,  -- 'belongs_to', 'depends_on', 'owns', 'member_of', 'related_to'
+            created_at REAL NOT NULL,
+            FOREIGN KEY(source_id) REFERENCES memories(id),
+            FOREIGN KEY(target_id) REFERENCES memories(id)
+        );
+
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
             content, type, source,
             content='memories', content_rowid='id'
@@ -110,6 +120,38 @@ def remember(content: str, mem_type: str = "fact", source: str = "", importance:
     conn.close()
     log.info(f"Stored memory [{mem_type}]: {content[:60]}")
     return mem_id
+
+
+def link_memories(source_id: int, target_id: int, rel_type: str = "related_to"):
+    """Create a relationship between two memories."""
+    if source_id == target_id:
+        return
+    conn = _get_db()
+    # Check if link already exists
+    exists = conn.execute(
+        "SELECT id FROM memory_links WHERE source_id = ? AND target_id = ?",
+        (source_id, target_id)
+    ).fetchone()
+    if not exists:
+        conn.execute(
+            "INSERT INTO memory_links (source_id, target_id, relationship, created_at) VALUES (?, ?, ?, ?)",
+            (source_id, target_id, rel_type, time.time())
+        )
+        conn.commit()
+    conn.close()
+
+
+def get_related_memories(mem_id: int, depth: int = 1) -> list[dict]:
+    """Get all related memories from the graph for a given memory ID."""
+    conn = _get_db()
+    # Find all memories linked to this one (both directions)
+    results = conn.execute("""
+        SELECT m.* FROM memories m
+        JOIN memory_links l ON (l.target_id = m.id OR l.source_id = m.id)
+        WHERE (l.source_id = ? OR l.target_id = ?) AND m.id != ?
+    """, (mem_id, mem_id, mem_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in results]
 
 
 def _sanitize_fts_query(query: str) -> str:
@@ -336,8 +378,15 @@ def build_memory_context(user_message: str) -> str:
     if len(user_message) > 5:
         relevant = recall(user_message, limit=3)
         if relevant:
-            mem_lines = [f"  - [{m['type']}] {m['content']}" for m in relevant]
-            parts.append("RELEVANT MEMORIES:\n" + "\n".join(mem_lines))
+            mem_lines = []
+            for m in relevant:
+                mem_lines.append(f"  - [{m['type']}] {m['content']}")
+                # Pull related memories from the graph
+                related = get_related_memories(m["id"])
+                for r in related:
+                    if not any(r["content"] == existing_m["content"] for existing_m in relevant):
+                         mem_lines.append(f"    └─ (Related) {r['content']}")
+            parts.append("RELEVANT MEMORIES & CONTEXT GRAPH:\n" + "\n".join(mem_lines))
 
     # Recent important memories (always available)
     important = get_important_memories(limit=3)
@@ -403,45 +452,51 @@ def format_plan_for_voice(tasks: list[dict], events: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 async def extract_memories(user_text: str, jarvis_response: str, anthropic_client) -> list[str]:
-    """After a conversation turn, extract any facts worth remembering.
+    """After a conversation turn, extract any facts worth remembering and their links.
 
-    Uses Haiku to decide if anything in the exchange is worth storing.
-    Returns list of memories stored.
+    Uses Haiku to decide if anything in the exchange is worth storing and how it relates to existing topics.
     """
     if not anthropic_client or len(user_text) < 15:
         return []
 
     try:
+        # Get recent context to allow linking to existing memories
+        recent = get_recent_memories(limit=5)
+        context_str = "\n".join([f"ID {m['id']}: {m['content']}" for m in recent])
+
         response = await anthropic_client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=300,
             system=(
-                "Extract facts worth remembering from this conversation. "
-                "Only extract CONCRETE facts: preferences, decisions, names, dates, plans, goals. "
-                "NOT opinions, greetings, or casual chat. "
-                "Return JSON array of objects: [{\"type\": \"fact|preference|project|person|decision\", \"content\": \"...\", \"importance\": 1-10}] "
-                "Return [] if nothing worth remembering. Be very selective."
+                "Extract facts worth remembering and identify relationships. "
+                "CANDIDATES: preferences, decisions, project details, goals. "
+                "RECENT MEMORIES FOR LINKING:\n" + context_str + "\n\n"
+                "Return JSON: {\"memories\": [{\"type\": \"...\", \"content\": \"...\", \"importance\": 1-10}], "
+                "\"links\": [{\"source_content\": \"...\", \"target_id\": <recent_id>, \"rel\": \"belongs_to|related_to\"}]} "
+                "Be extremely selective. Return empty lists if nothing new."
             ),
             messages=[{"role": "user", "content": f"User: {user_text}\nJARVIS: {jarvis_response}"}],
         )
 
-        text = response.content[0].text.strip()
-        # Parse JSON
-        if text.startswith("["):
-            items = json.loads(text)
-            stored = []
-            for item in items:
-                if isinstance(item, dict) and "content" in item:
-                    remember(
-                        content=item["content"],
-                        mem_type=item.get("type", "fact"),
-                        source=user_text[:50],
-                        importance=item.get("importance", 5),
-                    )
-                    stored.append(item["content"])
-            return stored
+        data = json.loads(response.content[0].text.strip())
+        stored = []
+        content_to_id = {}
+
+        # Store new memories
+        for m in data.get("memories", []):
+            mem_id = remember(m["content"], m.get("type", "fact"), user_text[:50], m.get("importance", 5))
+            stored.append(m["content"])
+            content_to_id[m["content"]] = mem_id
+
+        # Store links
+        for l in data.get("links", []):
+            source_id = content_to_id.get(l["source_content"])
+            if source_id and l.get("target_id"):
+                link_memories(source_id, l["target_id"], l.get("rel", "related_to"))
+
+        return stored
     except Exception as e:
-        log.debug(f"Memory extraction failed: {e}")
+        log.debug(f"Graph extraction failed: {e}")
 
     return []
 

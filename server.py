@@ -52,11 +52,20 @@ from memory import (
     remember, recall, get_open_tasks, create_task, complete_task, search_tasks,
     create_note, search_notes, get_tasks_for_date, build_memory_context,
     format_tasks_for_voice, extract_memories, get_important_memories,
+    link_memories, get_related_memories,
 )
 from notes_access import get_recent_notes, read_note, search_notes_apple, create_apple_note
 from dispatch_registry import DispatchRegistry
 from planner import TaskPlanner, detect_planning_mode, BYPASS_PHRASES
 from utils_llm import call_llm
+
+# --- New Prime Modules ---
+from agents import MultiAgentOrchestrator, AGENT_REGISTRY
+from proactive import ProactiveAgent
+from code_review import CodeReviewer
+from audit import audit_log, get_audit_history, format_audit_report
+from git_tools import git_commit_and_push, git_status_check, git_new_feature_branch
+from debug_loop import AutoDebugLoop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("ipprime")
@@ -764,7 +773,7 @@ def extract_action(response: str) -> tuple[str, dict | None]:
     Returns (clean_text_for_tts, action_dict_or_none).
     """
     match = _action_re.search(
-        r'\[ACTION:(BUILD|BROWSE|RESEARCH|OPEN_TERMINAL|PROMPT_PROJECT|ADD_TASK|ADD_NOTE|COMPLETE_TASK|REMEMBER|CREATE_NOTE|READ_NOTE|SCREEN)\]\s*(.*?)$',
+        r'\[ACTION:(BUILD|BROWSE|RESEARCH|OPEN_TERMINAL|PROMPT_PROJECT|ADD_TASK|ADD_NOTE|COMPLETE_TASK|REMEMBER|CREATE_NOTE|READ_NOTE|SCREEN|CODE_REVIEW)\]\s*(.*?)$',
         response, _action_re.DOTALL,
     )
     if match:
@@ -793,6 +802,33 @@ async def _execute_browse(target: str):
             await open_browser(f"https://www.google.com/search?q={quote(target)}")
     except Exception as e:
         log.error(f"Browse execution failed: {e}")
+
+async def _execute_code_review(target: str, ws=None):
+    """Execute a code review action from an LLM-embedded [ACTION:CODE_REVIEW] tag."""
+    try:
+        if not code_reviewer:
+            return
+        
+        path = _find_project_dir(target)
+        if path:
+            result = await code_reviewer.get_current_diff(path)
+        else:
+            result = await code_reviewer.review_file(target)
+            
+        # Notify via voice
+        if ws:
+            msg = f"I've reviewed the code for {target}, sir. I'll display the summary now."
+            audio = await synthesize_speech(msg)
+            try:
+                if audio:
+                    await ws.send_json({"type": "status", "state": "speaking"})
+                    await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": msg})
+                await ws.send_json({"type": "text", "text": f"[Code Review for {target}]:\n\n{result}"})
+                await ws.send_json({"type": "status", "state": "idle"})
+            except Exception:
+                pass
+    except Exception as e:
+        log.error(f"Code review failed: {e}")
 
 
 async def _execute_research(target: str, ws=None):
@@ -1230,6 +1266,10 @@ anthropic_client: Optional[anthropic.AsyncAnthropic] = None
 cached_projects: list[dict] = []
 recently_built: list[dict] = []  # [{"name": str, "path": str, "time": float}]
 dispatch_registry = DispatchRegistry()
+proactive_agent = None
+agent_orchestrator = None
+code_reviewer = None
+
 
 # Usage tracking — logs every call with timestamp, persists to disk
 _USAGE_FILE = Path(__file__).parent / "data" / "usage_log.jsonl"
@@ -1406,7 +1446,7 @@ return windowList
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    global anthropic_client, cached_projects
+    global anthropic_client, cached_projects, proactive_agent, agent_orchestrator, code_reviewer
     if ANTHROPIC_API_KEY:
         anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     elif NVIDIA_API_KEY:
@@ -1415,11 +1455,34 @@ async def lifespan(application: FastAPI):
         log.warning("No LLM API keys set — IP Prime will be unable to converse")
     cached_projects = []
 
+    # Initialize Prime Modules
+    agent_orchestrator = MultiAgentOrchestrator(anthropic_client)
+    code_reviewer = CodeReviewer(anthropic_client)
+    
+    async def global_alert(msg: str):
+        log.info(f"Proactive Alert: {msg}")
+        if not _active_websockets: return
+        audio = await synthesize_speech(msg)
+        if audio:
+            encoded = base64.b64encode(audio).decode()
+            for ws in _active_websockets:
+                try:
+                    await ws.send_json({"type": "status", "state": "speaking"})
+                    await ws.send_json({"type": "audio", "data": encoded, "text": msg})
+                    await ws.send_json({"type": "status", "state": "idle"})
+                except Exception:
+                    pass
+                    
+    proactive_agent = ProactiveAgent(alert_callback=global_alert)
+    asyncio.create_task(proactive_agent.start())
+
     # Start context refresh in a separate thread (never touches event loop)
     _refresh_context_sync()
     log.info("IP Prime server starting")
 
     yield
+    if proactive_agent:
+        proactive_agent.stop()
 
 
 app = FastAPI(title="IP Prime Server", version="0.1.0", lifespan=lifespan)
@@ -1999,14 +2062,17 @@ async def voice_handler(ws: WebSocket):
         # ── Greeting — always start in conversation mode ──
         now = datetime.now()
         hour = now.hour
+        
+        # Adding highly customized, randomized English welcome messages as requested
         cool_greetings = [
-            f"Good {('morning' if hour < 12 else 'afternoon' if hour < 17 else 'evening')}, sir. The IP Verse is stable. Standing by.",
-            "System online. Universe calibrated. Ready to build something legendary, sir?",
-            f"Authentication successful. Access granted to {USER_NAME}. All systems reporting optimal.",
-            f"Prime is operational. The IP Verse is at your fingertips. Shall we begin, {USER_NAME}?",
-            "Authorized access confirmed. Welcome to the core of the IP Verse, sir.",
-            "Neural link established. Your world is secure, sir. What are we orchestrating today?",
-            "All systems nominal. Neural links established. Ready to dominate, sir?"
+            f"Good {('morning' if hour < 12 else 'afternoon' if hour < 17 else 'evening')}, {USER_NAME}. I've booted up and all systems are primed. What's on our agenda?",
+            f"Systems online and calibrated, buddy. Ready whenever you are, let's roll.",
+            f"Welcome back to the IP Verse, {USER_NAME}. Neural linkages are fully synced. Shall we get to work?",
+            f"I'm awake and running hot, sir. Just point me at today's challenges.",
+            f"Powering up... Authentication confirmed. {USER_NAME} is in the house. What are we building today?",
+            f"Connecting to the mainframe... Successfully established. How can I assist you right now, sir?",
+            f"All clear on my end, {USER_NAME}. The background watchers are active and development environment is ready.",
+            f"It's about time, sir! Let's get some coding done. Everything is running smoothly.",
         ]
         greeting = random.choice(cool_greetings)
 
@@ -2337,6 +2403,8 @@ async def voice_handler(ws: WebSocket):
                                     )
                                 elif embedded_action["action"] == "open_terminal":
                                     asyncio.create_task(_execute_open_terminal())
+                                elif embedded_action["action"] == "code_review":
+                                    asyncio.create_task(_execute_code_review(embedded_action["target"], ws))
                                 elif embedded_action["action"] == "prompt_project":
                                     target = embedded_action["target"]
                                     if "|||" in target:

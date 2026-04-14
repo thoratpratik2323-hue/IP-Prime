@@ -243,6 +243,58 @@ class JarvisBrowser:
             key_findings=[r.title for r in results[:3]],
         )
 
+    async def summarize_youtube(self, url: str, client) -> str:
+        """Extract info from a YouTube video and summarize it using AI."""
+        page = await self._new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+            # Expand description
+            try:
+                await page.click("#description-inline-expander", timeout=3000)
+            except: pass
+            
+            # Extract metadata
+            title = await page.inner_text("h1.ytd-video-primary-info-renderer")
+            description = await page.inner_text("#description-text")
+            
+            # Request AI summary
+            summary = await call_llm(
+                client=client,
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=600,
+                system="Summarize the following YouTube video content accurately.",
+                messages=[{"role": "user", "content": f"Title: {title}\nDescription: {description}"}]
+            )
+            return summary
+        except Exception as e:
+            return f"Failed to summarize video: {e}"
+
+    async def track_price(self, url: str) -> dict:
+        """Find the price of a product on a page."""
+        page = await self._new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_MS)
+            # Common selectors for prices
+            price = await page.evaluate("""
+                () => {
+                    const selectors = [
+                        '.a-price-whole', '#priceblock_ourprice', '#priceblock_dealprice',
+                        '.price-current', '.product-price', '.price'
+                    ];
+                    for (let s of selectors) {
+                        const el = document.querySelector(s);
+                        if (el) return el.innerText.trim();
+                    }
+                    // Meta tags
+                    const meta = document.querySelector('meta[property="product:price:amount"]');
+                    if (meta) return meta.content;
+                    return "Not found";
+                }
+            """)
+            return {"url": url, "price": price, "timestamp": time.time()}
+        except Exception as e:
+            return {"error": str(e)}
+
     # -- Lifecycle -------------------------------------------------------------
 
     async def close(self):
