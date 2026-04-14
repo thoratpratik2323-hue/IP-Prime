@@ -61,7 +61,7 @@ class ResearchResult:
 # Browser Manager
 # ---------------------------------------------------------------------------
 
-class IP PrimeBrowser:
+class IpPrimeBrowser:
     """Playwright-based web browsing for IP_PRIME."""
 
     def __init__(self):

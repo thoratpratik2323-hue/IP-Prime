@@ -18,7 +18,7 @@ import pytest_asyncio
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from browser import IP PrimeBrowser, SearchResult, PageContent
+from browser import IpPrimeBrowser, SearchResult, PageContent
 
 
 def _has_network() -> bool:
@@ -37,7 +37,7 @@ SKIP_REASON = "No network or Playwright browsers not available"
 @pytest_asyncio.fixture
 async def browser():
     """Create and clean up a browser instance."""
-    b = IP PrimeBrowser()
+    b = IpPrimeBrowser()
     yield b
     await b.close()
 
@@ -177,6 +177,6 @@ def test_browse_action_keywords():
 @pytest.mark.asyncio
 async def test_browser_close_idempotent():
     """Closing browser multiple times should not error."""
-    b = IP PrimeBrowser()
+    b = IpPrimeBrowser()
     await b.close()
     await b.close()  # Should not raise

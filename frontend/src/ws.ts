@@ -4,14 +4,14 @@
 
 export type MessageHandler = (msg: Record<string, unknown>) => void;
 
-export interface IP PrimeSocket {
+export interface IpPrimeSocket {
   send(data: Record<string, unknown>): void;
   onMessage(handler: MessageHandler): void;
   close(): void;
   isConnected(): boolean;
 }
 
-export function createSocket(url: string): IP PrimeSocket {
+export function createSocket(url: string): IpPrimeSocket {
   let ws: WebSocket | null = null;
   let handlers: MessageHandler[] = [];
   let reconnectDelay = 1000;
