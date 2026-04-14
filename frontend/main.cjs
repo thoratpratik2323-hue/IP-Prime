@@ -18,6 +18,9 @@ function createWindow() {
   // In development, load from Vite
   win.loadURL('http://localhost:5173');
 
+  // Maximize window upon execution as requested
+  win.maximize();
+
   // win.webContents.openDevTools();
 }
 
