@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
-
 from templates import TEMPLATES, get_template
+from utils_llm import call_llm
 
 log = logging.getLogger("jarvis.planner")
 
@@ -128,7 +128,8 @@ async def _classify_planning_mode_llm(
 ) -> PlanningDecision:
     """Use Haiku to classify request and identify missing info."""
     try:
-        response = await client.messages.create(
+        raw = await call_llm(
+            client=client,
             model="claude-haiku-4-5-20251001",
             max_tokens=400,
             system=(
@@ -158,7 +159,6 @@ async def _classify_planning_mode_llm(
             ),
             messages=[{"role": "user", "content": text}],
         )
-        raw = response.content[0].text.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         data = json.loads(raw)
@@ -676,7 +676,8 @@ class TaskPlanner:
     async def _classify_request(self, text: str, client: anthropic.AsyncAnthropic) -> dict:
         """Use Haiku to classify request type and extract known info."""
         try:
-            response = await client.messages.create(
+            raw = await call_llm(
+                client=client,
                 model="claude-haiku-4-5-20251001",
                 max_tokens=300,
                 system=(
@@ -692,7 +693,6 @@ class TaskPlanner:
                 ),
                 messages=[{"role": "user", "content": text}],
             )
-            raw = response.content[0].text.strip()
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             return json.loads(raw)

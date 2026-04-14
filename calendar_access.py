@@ -8,6 +8,7 @@ filter dates in Python. Results cached and refreshed in background.
 import asyncio
 import logging
 import os
+import sys
 import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -46,6 +47,8 @@ end tell
 
 async def _ensure_calendar_running():
     """Launch Calendar.app if not already running."""
+    if sys.platform == "win32":
+        return
     global _calendar_launched
     if _calendar_launched:
         return
@@ -64,7 +67,8 @@ async def _ensure_calendar_running():
 
 
 async def _fetch_calendar_events(cal_name: str, timeout: float = 12.0) -> list[dict]:
-    """Fetch all events from one calendar, filter to today in Python."""
+    if sys.platform == "win32":
+        return []
     script = _BULK_SCRIPT.replace("{cal_name}", cal_name)
     try:
         proc = await asyncio.create_subprocess_exec(

@@ -1,18 +1,18 @@
 """
-JARVIS Server — Voice AI + Development Orchestration
+IP Prime Server — Voice AI + Development Orchestration
 
 Handles:
 1. WebSocket voice interface (browser audio <-> LLM <-> TTS)
 2. Claude Code task manager (spawn/manage claude -p subprocesses)
 3. Project awareness (scan Desktop for git repos)
-4. REST API for task management
-"""
+4. REST API for task management"""
 
 import asyncio
 import base64
 import json
 import logging
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -34,10 +34,14 @@ from typing import Optional
 
 import anthropic
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import openai
+import pyttsx3
+import tempfile
+import shutil
 
 from actions import execute_action, monitor_build, open_terminal, open_browser, open_claude_in_project, _generate_project_name, prompt_existing_terminal
 from work_mode import WorkSession, is_casual_question
@@ -52,9 +56,10 @@ from memory import (
 from notes_access import get_recent_notes, read_note, search_notes_apple, create_apple_note
 from dispatch_registry import DispatchRegistry
 from planner import TaskPlanner, detect_planning_mode, BYPASS_PHRASES
+from utils_llm import call_llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger("jarvis")
+log = logging.getLogger("ipprime")
 
 # ---------------------------------------------------------------------------
 # Config
@@ -62,15 +67,24 @@ log = logging.getLogger("jarvis")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 FISH_API_KEY = os.getenv("FISH_API_KEY", "")
-FISH_VOICE_ID = os.getenv("FISH_VOICE_ID", "612b878b113047d9a770c069c8b4fdfe")  # JARVIS (MCU)
+FISH_VOICE_ID = os.getenv("FISH_VOICE_ID", "612b878b113047d9a770c069c8b4fdfe")  # IP Prime (MCU)
 FISH_API_URL = "https://api.fish.audio/v1/tts"
+
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_MODEL_NAME = os.getenv("NVIDIA_MODEL_NAME", "meta/llama-3.1-70b-instruct")
+
+USE_LOCAL_TTS = os.getenv("USE_LOCAL_TTS", "false").lower() == "true"
 USER_NAME = os.getenv("USER_NAME", "sir")
+ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "IP Prime")
+USER_EMAIL = os.getenv("USER_EMAIL", "")
+USER_OS = os.getenv("USER_OS", "Windows 11")
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DESKTOP_PATH = Path.home() / "Desktop"
 
 JARVIS_SYSTEM_PROMPT = """\
-You are JARVIS — Just A Rather Very Intelligent System. You serve as {user_name}'s AI assistant, modeled precisely after Tony Stark's AI from the MCU films.
+You are IP Prime — {user_name}'s personal AI. You are modeled after Tony Stark's JARVIS from the MCU, but your name is IP Prime.
 
 VOICE & PERSONALITY:
 - British butler elegance with understated dry wit
@@ -95,12 +109,18 @@ CONVERSATION STYLE:
 - When you don't know something: "I'm afraid I don't have that information, sir" not "I don't know"
 
 SELF-AWARENESS:
-You ARE the JARVIS project at {project_dir} on {user_name}'s computer. Your code is Python (FastAPI server, WebSocket voice, Fish Audio TTS, Anthropic API). You were built by {user_name}. If asked about yourself, your code, how you work, or your line count — use [ACTION:PROMPT_PROJECT] to check the jarvis project. You have full access to your own source code.
+You ARE IP Prime running at {project_dir} on {user_name}'s computer. Your code is Python (FastAPI server, WebSocket voice, Fish Audio TTS, Anthropic API). You were built by {user_name}. If asked about yourself, your code, how you work, or your line count — use [ACTION:PROMPT_PROJECT] to check the IP Prime project. You have full access to your own source code.
+
+OWNER PROFILE:
+- Name: {user_name}
+- Email: {user_email}
+- Operating System: {user_os}
+- You serve ONLY this owner. Never forget who you belong to.
 
 YOUR CAPABILITIES (these are REAL and ACTIVE — you CAN do all of these RIGHT NOW):
-- You CAN open Terminal.app via AppleScript
+- You CAN open PowerShell / Command Prompt on Windows
 - You CAN open Google Chrome and browse any URL or search query
-- You CAN spawn Claude Code in a Terminal window for coding tasks
+- You CAN spawn Claude Code in a terminal for coding tasks
 - You CAN create project folders on the Desktop
 - You CAN check Desktop projects and their git status
 - You CAN plan complex tasks by asking smart questions before executing
@@ -148,7 +168,7 @@ If asked about any of these, explain them briefly and naturally. If the user is 
 
 SPEECH-TO-TEXT CORRECTIONS (the user speaks, speech recognition may mishear):
 - "Cloud code" or "cloud" = "Claude Code" or "Claude"
-- "Travis" = "JARVIS"
+- "Travis" / "JARVIS" / "IP Prime" = "Prime"
 - "clock code" = "Claude Code"
 
 RESPONSE LENGTH — THIS IS CRITICAL:
@@ -201,7 +221,7 @@ CRITICAL: When the user asks about their SCREEN, what's RUNNING, or what they're
 - [ACTION:REMEMBER] content — store an important fact about the user for future context.
   "I prefer React over Vue" → [ACTION:REMEMBER] User prefers React over Vue for frontend projects
 - [ACTION:CREATE_NOTE] title ||| body — create a new Apple Note. For saving plans, ideas, lists.
-  "save that as a note" → [ACTION:CREATE_NOTE] Day Plan March 19 ||| Morning: client calls. Afternoon: TikTok dashboard. Evening: JARVIS improvements.
+  "save that as a note" → [ACTION:CREATE_NOTE] Day Plan March 19 ||| Morning: client calls. Afternoon: TikTok dashboard. Evening: IP Prime improvements.
 - [ACTION:READ_NOTE] title search — read an existing Apple Note by title keyword.
 
 You use Claude Code as your tool to build, research, and write code — but YOU are the one doing the work. Never say "Claude Code did X" or "Claude Code is asking" — say "I built X", "I'm checking on that", "I found X". You ARE the intelligence. Claude Code is just your hands.
@@ -370,7 +390,7 @@ class ClaudeTaskManager:
         # Take first 3-4 meaningful words
         skip = {"a", "the", "an", "me", "build", "create", "make", "for", "with", "and", "to", "of"}
         meaningful = [w for w in words if w not in skip][:4]
-        name = "-".join(meaningful) if meaningful else "jarvis-project"
+        name = "-".join(meaningful) if meaningful else "ipprime-project"
         return name
 
     async def _run_task(self, task: ClaudeTask):
@@ -388,27 +408,28 @@ class ClaudeTaskManager:
             task.working_dir = work_dir
 
         # Write the prompt to a temp file so we can pipe it to claude
-        prompt_file = Path(work_dir) / ".jarvis_prompt.md"
+        prompt_file = Path(work_dir) / ".ipprime_prompt.md"
         prompt_file.write_text(task.prompt)
 
-        # Open Terminal.app with claude running in the project directory
-        applescript = f'''
-        tell application "Terminal"
-            activate
-            set newTab to do script "cd {work_dir} && cat .jarvis_prompt.md | claude -p --dangerously-skip-permissions | tee .jarvis_output.txt; echo '\\n--- JARVIS TASK COMPLETE ---'"
-        end tell
-        '''
-
-        process = await asyncio.create_subprocess_exec(
-            "osascript", "-e", applescript,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        if sys.platform == "win32":
+            # Windows PowerShell approach
+            cmd = f'cd "{work_dir}"; Get-Content .ipprime_prompt.md | claude -p --dangerously-skip-permissions | tee .ipprime_output.txt; echo "`n--- IP PRIME TASK COMPLETE ---"'
+            process = await asyncio.create_subprocess_exec(
+                "powershell", "-Command", f"Start-Process powershell -ArgumentList '-Command', '{cmd}'",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(
+                "osascript", "-e", applescript,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         await process.communicate()
-        task.pid = process.pid
+        task.pid = process.pid if process else 0
 
         # Monitor the output file for completion
-        output_file = Path(work_dir) / ".jarvis_output.txt"
+        output_file = Path(work_dir) / ".ipprime_output.txt"
         start = time.time()
         timeout = 600  # 10 minutes
 
@@ -416,8 +437,8 @@ class ClaudeTaskManager:
             await asyncio.sleep(5)
             if output_file.exists():
                 content = output_file.read_text()
-                if "--- JARVIS TASK COMPLETE ---" in content or len(content) > 100:
-                    task.result = content.replace("--- JARVIS TASK COMPLETE ---", "").strip()
+                if "--- IP PRIME TASK COMPLETE ---" in content or len(content) > 100:
+                    task.result = content.replace("--- IP PRIME TASK COMPLETE ---", "").strip()
                     task.status = "completed"
                     break
         else:
@@ -618,8 +639,13 @@ STT_CORRECTIONS = {
     r"\bclod code\b": "Claude Code",
     r"\bcloud\b": "Claude",
     r"\bquad\b": "Claude",
-    r"\btravis\b": "JARVIS",
-    r"\bjarves\b": "JARVIS",
+    r"\btravis\b": "Prime",
+    r"\bjarvis\b": "Prime",
+    r"\bjarves\b": "Prime",
+    r"\bi p prime\b": "Prime",
+    r"\baip prime\b": "Prime",
+    r"\ba i p prime\b": "Prime",
+    r"\bip prime\b": "Prime",
 }
 
 
@@ -642,17 +668,18 @@ async def classify_intent(text: str, client: anthropic.AsyncAnthropic) -> dict:
     Returns: {"action": "open_terminal|browse|build|chat", "target": "description"}
     """
     try:
-        response = await client.messages.create(
+        raw = await call_llm(
+            client=client,
             model="claude-haiku-4-5-20251001",
             max_tokens=100,
             system=(
-                "Classify this voice command. The user is talking to JARVIS, an AI assistant that can:\n"
+                "Classify this voice command. The user is talking to IP Prime, an AI assistant that can:\n"
                 "- Open Terminal and run Claude Code (coding AI tool)\n"
                 "- Open Chrome browser for web searches and URLs\n"
                 "- Build software projects via Claude Code in Terminal\n"
                 "- Research topics by opening Chrome search\n\n"
                 "Note: speech-to-text may produce errors like \"Cloud\" for \"Claude\", "
-                "\"Travis\" for \"JARVIS\", \"clock code\" for \"Claude Code\".\n\n"
+                "\"Travis\" for \"IP Prime\", \"clock code\" for \"Claude Code\".\n\n"
                 "Return ONLY valid JSON: {\"action\": \"open_terminal|browse|build|chat\", "
                 "\"target\": \"description of what to do\"}\n"
                 "open_terminal = user wants to open terminal or launch Claude Code\n"
@@ -663,7 +690,6 @@ async def classify_intent(text: str, client: anthropic.AsyncAnthropic) -> dict:
             ),
             messages=[{"role": "user", "content": text}],
         )
-        raw = response.content[0].text.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         data = json.loads(raw)
@@ -825,7 +851,7 @@ async def _execute_research(target: str, ws=None):
                     await ws.send_json({"type": "status", "state": "speaking"})
                     await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": notify_text})
                     await ws.send_json({"type": "status", "state": "idle"})
-                    log.info(f"JARVIS: {notify_text}")
+                    log.info(f"IP Prime: {notify_text}")
             except Exception:
                 pass  # WebSocket might be gone
 
@@ -890,8 +916,8 @@ def _find_project_dir(project_name: str) -> str | None:
 async def _execute_prompt_project(project_name: str, prompt: str, work_session: WorkSession, ws, dispatch_id: int = None, history: list[dict] = None, voice_state: dict = None):
     """Dispatch a prompt to Claude Code in a project directory.
 
-    Runs entirely in the background. JARVIS returns to conversation mode
-    immediately. When Claude Code finishes, JARVIS interrupts to report.
+    Runs entirely in the background. IP Prime returns to conversation mode
+    immediately. When Claude Code finishes, IP Prime interrupts to report.
     """
     try:
         project_dir = _find_project_dir(project_name)
@@ -947,11 +973,12 @@ async def _execute_prompt_project(project_name: str, prompt: str, work_session: 
             # Summarize via Haiku — don't read word for word
             if anthropic_client:
                 try:
-                    summary = await anthropic_client.messages.create(
+                    msg = await call_llm(
+                        client=anthropic_client,
                         model="claude-haiku-4-5-20251001",
                         max_tokens=150,
                         system=(
-                            "You are JARVIS reporting back on what you found or built in a project. "
+                            "You are IP Prime reporting back on what you found or built in a project. "
                             "Speak in first person — 'I found', 'I built', 'I reviewed'. "
                             "Start with 'Sir, ' to get the user's attention. "
                             "Be specific but concise — highlight the key findings or actions taken. "
@@ -962,7 +989,6 @@ async def _execute_prompt_project(project_name: str, prompt: str, work_session: 
                         ),
                         messages=[{"role": "user", "content": f"Project: {project_name}\nClaude Code reported:\n{full_response[:3000]}"}],
                     )
-                    msg = summary.content[0].text
                 except Exception:
                     msg = f"Sir, {project_name} finished. Here's the gist: {full_response[:200]}"
             else:
@@ -972,7 +998,7 @@ async def _execute_prompt_project(project_name: str, prompt: str, work_session: 
         log.info(f"Dispatch summary for {project_name}: {msg[:100]}")
         if voice_state and time.time() - voice_state["last_user_time"] < 3:
             log.info(f"Skipping dispatch audio for {project_name} — user spoke recently")
-            # Result is still stored in history below so JARVIS can reference it
+            # Result is still stored in history below so IP Prime can reference it
         else:
             audio = await synthesize_speech(strip_markdown_for_tts(msg))
             if ws:
@@ -987,7 +1013,7 @@ async def _execute_prompt_project(project_name: str, prompt: str, work_session: 
                 except Exception as e:
                     log.error(f"Dispatch audio send failed: {e}")
 
-        # Store dispatch result in conversation history so JARVIS remembers it
+        # Store dispatch result in conversation history so IP Prime remembers it
         if history is not None:
             history.append({"role": "assistant", "content": f"[Dispatch result for {project_name}]: {msg}"})
 
@@ -1015,13 +1041,13 @@ async def self_work_and_notify(session: WorkSession, prompt: str, ws):
         # Summarize and speak
         if anthropic_client and full_response:
             try:
-                summary = await anthropic_client.messages.create(
+                msg = await call_llm(
+                    client=anthropic_client,
                     model="claude-haiku-4-5-20251001",
                     max_tokens=100,
-                    system="You are JARVIS. Summarize what you just completed in 1 sentence. First person — 'I built', 'I set up'. No markdown. Never say 'Claude Code'.",
+                    system="You are IP Prime. Summarize what you just completed in 1 sentence. First person — 'I built', 'I set up'. No markdown. Never say 'Claude Code'.",
                     messages=[{"role": "user", "content": f"Claude Code completed:\n{full_response[:2000]}"}],
                 )
-                msg = summary.content[0].text
             except Exception:
                 msg = "Work is complete, sir."
 
@@ -1031,7 +1057,7 @@ async def self_work_and_notify(session: WorkSession, prompt: str, ws):
                     await ws.send_json({"type": "status", "state": "speaking"})
                     await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": msg})
                     await ws.send_json({"type": "status", "state": "idle"})
-                    log.info(f"JARVIS: {msg}")
+                    log.info(f"IP Prime: {msg}")
             except Exception:
                 pass
     except Exception as e:
@@ -1042,15 +1068,22 @@ async def self_work_and_notify(session: WorkSession, prompt: str, ws):
 _last_greeting_time: float = 0
 
 
+# LLM calls are now handled by utils_llm.call_llm
+
+
 # ---------------------------------------------------------------------------
 # TTS (Fish Audio)
 # ---------------------------------------------------------------------------
 
 async def synthesize_speech(text: str) -> Optional[bytes]:
-    """Generate speech audio from text using Fish Audio TTS."""
-    if not FISH_API_KEY:
-        log.warning("FISH_API_KEY not set, skipping TTS")
-        return None
+    """Generate speech audio from text using Fish Audio TTS or local Windows TTS."""
+    if not FISH_API_KEY or USE_LOCAL_TTS:
+        # Use Local Windows TTS
+        try:
+            return await asyncio.to_thread(_synthesize_local, text)
+        except Exception as e:
+            log.error(f"Local TTS error: {e}")
+            return None
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as http:
@@ -1072,9 +1105,43 @@ async def synthesize_speech(text: str) -> Optional[bytes]:
                 return response.content
             else:
                 log.error(f"TTS error: {response.status_code}")
-                return None
+                # Fallback to local
+                return await asyncio.to_thread(_synthesize_local, text)
     except Exception as e:
         log.error(f"TTS error: {e}")
+        return await asyncio.to_thread(_synthesize_local, text)
+
+
+def _synthesize_local(text: str) -> Optional[bytes]:
+    """Helper to run pyttsx3 in a thread and return WAV bytes."""
+    try:
+        import pyttsx3
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_file = Path(tmpdir) / "speech.wav"
+            engine = pyttsx3.init()
+            
+            # Try to find a British voice for IP Prime vibe
+            voices = engine.getProperty('voices')
+            for v in voices:
+                if "United Kingdom" in v.name or "Hazel" in v.name:
+                    engine.setProperty('voice', v.id)
+                    break
+            
+            engine.setProperty('rate', 170)
+            engine.save_to_file(text, str(temp_file))
+            engine.runAndWait()
+            
+            # Small delay to ensure file is closed
+            time.sleep(0.1)
+            
+            if temp_file.exists():
+                return temp_file.read_bytes()
+        return None
+    except Exception as e:
+        log.error(f"Local synthesis failed: {e}")
         return None
 
 
@@ -1084,14 +1151,14 @@ async def synthesize_speech(text: str) -> Optional[bytes]:
 
 async def generate_response(
     text: str,
-    client: anthropic.AsyncAnthropic,
+    client: Optional[anthropic.AsyncAnthropic],
     task_mgr: ClaudeTaskManager,
     projects: list[dict],
     conversation_history: list[dict],
     last_response: str = "",
     session_summary: str = "",
 ) -> str:
-    """Generate a JARVIS response using Anthropic API."""
+    """Generate an IP Prime response using Anthropic or NVIDIA NIM API."""
     now = datetime.now()
     current_time = now.strftime("%A, %B %d, %Y at %I:%M %p")
 
@@ -1116,6 +1183,8 @@ async def generate_response(
         dispatch_context=dispatch_registry.format_for_prompt(),
         known_projects=format_projects_for_prompt(projects),
         user_name=USER_NAME,
+        user_email=USER_EMAIL,
+        user_os=USER_OS,
         project_dir=PROJECT_DIR,
     )
     if lookup_status:
@@ -1124,35 +1193,31 @@ async def generate_response(
     # Inject relevant memories and tasks
     memory_ctx = build_memory_context(text)
     if memory_ctx:
-        system += f"\n\nJARVIS MEMORY:\n{memory_ctx}"
+        system += f"\n\nIP PRIME MEMORY:\n{memory_ctx}"
 
     # Three-tier memory — inject rolling summary of earlier conversation
     if session_summary:
         system += f"\n\nSESSION CONTEXT (earlier in this conversation):\n{session_summary}"
 
-    # Self-awareness — remind JARVIS of last response to avoid repetition
+    # Self-awareness — remind IP Prime of last response to avoid repetition
     if last_response:
         system += f'\n\nYOUR LAST RESPONSE (do not repeat this):\n"{last_response[:150]}"'
 
     # Use conversation history — keep the last 20 messages for context
-    # (older conversation is captured in session_summary)
     messages = conversation_history[-20:]
-    # If the last message isn't the current user text, add it
     if not messages or messages[-1].get("content") != text:
-        messages = messages + [{"role": "user", "content": text}]
+        messages = list(messages) + [{"role": "user", "content": text}]
 
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=250,  # Extra room for [ACTION:X] tags
+        return await call_llm(
+            client=client,
             system=system,
             messages=messages,
+            max_tokens=256
         )
-        track_usage(response)
-        return response.content[0].text
     except Exception as e:
-        log.error(f"LLM error: {e}")
-        return "Apologies, sir. I'm having trouble connecting to my language systems."
+        log.error(f"Generate response failed: {e}")
+        return "Apologies, sir. My core processing systems are encountering an error."
 
 
 # ---------------------------------------------------------------------------
@@ -1271,8 +1336,12 @@ def _refresh_context_sync():
             try:
                 # Screen — fast
                 try:
-                    proc = __import__("subprocess").run(
-                        ["osascript", "-e", '''
+                    if __import__("sys").platform == "win32":
+                        # Return empty list for now on Windows
+                        stdout_str = ""
+                    else:
+                        proc = __import__("subprocess").run(
+                            ["osascript", "-e", '''
 set windowList to ""
 tell application "System Events"
     set frontApp to name of first application process whose frontmost is true
@@ -1296,11 +1365,12 @@ tell application "System Events"
 end tell
 return windowList
 '''],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if proc.returncode == 0 and proc.stdout.strip():
+                            capture_output=True, text=True, timeout=5
+                        )
+                        stdout_str = proc.stdout
+                    if stdout_str and stdout_str.strip():
                         windows = []
-                        for line in proc.stdout.strip().split("\n"):
+                        for line in stdout_str.strip().split("\n"):
                             parts = line.strip().split("|||")
                             if len(parts) >= 3:
                                 windows.append({
@@ -1339,18 +1409,21 @@ async def lifespan(application: FastAPI):
     global anthropic_client, cached_projects
     if ANTHROPIC_API_KEY:
         anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    elif NVIDIA_API_KEY:
+        log.info("Using NVIDIA NIM as the primary LLM")
     else:
-        log.warning("ANTHROPIC_API_KEY not set — LLM features disabled")
+        log.warning("No LLM API keys set — IP Prime will be unable to converse")
     cached_projects = []
 
     # Start context refresh in a separate thread (never touches event loop)
     _refresh_context_sync()
-    log.info("JARVIS server starting")
+    log.info("IP Prime server starting")
 
     yield
 
 
-app = FastAPI(title="JARVIS Server", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="IP Prime Server", version="0.1.0", lifespan=lifespan)
+_active_websockets: list[WebSocket] = []
 
 app.add_middleware(
     CORSMiddleware,
@@ -1365,7 +1438,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "online", "name": "JARVIS", "version": "0.1.0"}
+    return {"status": "online", "name": "IP Prime", "version": "0.1.0"}
 
 
 @app.get("/api/tts-test")
@@ -1392,6 +1465,29 @@ async def api_usage():
         "all_time": {**all_time, "cost_usd": round(_cost_from_tokens(all_time["input_tokens"], all_time["output_tokens"]), 4)},
     }
 
+
+@app.post("/api/wake")
+async def wake_trigger(request: Request):
+    """Trigger IP Prime via external wake word detector."""
+    try:
+        data = await request.json()
+        command_text = data.get("text") or data.get("command", "")
+    except:
+        command_text = ""
+
+    log.info(f"Wake word detected via external trigger. Command: {command_text}")
+    
+    for ws in _active_websockets:
+        try:
+            if command_text:
+                # If there's a direct command, send it to frontend to process
+                await ws.send_json({"type": "command_trigger", "text": command_text})
+            else:
+                await ws.send_json({"type": "status", "state": "listening"})
+        except Exception:
+            pass
+            
+    return {"status": "success", "message": "IP Prime is listening, sir."}
 
 @app.get("/api/tasks")
 async def api_list_tasks():
@@ -1536,20 +1632,28 @@ async def handle_build(target: str) -> str:
 
     # Write prompt to a file, then pipe it to claude -p
     # This avoids all shell escaping issues
-    prompt_file = Path(path) / ".jarvis_prompt.txt"
+    prompt_file = Path(path) / ".ipprime_prompt.txt"
     prompt_file.write_text(target)
 
-    script = (
-        'tell application "Terminal"\n'
-        "    activate\n"
-        f'    do script "cd {path} && cat .jarvis_prompt.txt | claude -p --dangerously-skip-permissions"\n'
-        "end tell"
-    )
-    await asyncio.create_subprocess_exec(
-        "osascript", "-e", script,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    if sys.platform == "win32":
+        cmd = f'cd "{path}"; Get-Content .ipprime_prompt.txt | claude -p --dangerously-skip-permissions'
+        await asyncio.create_subprocess_exec(
+            "powershell", "-Command", f"Start-Process powershell -ArgumentList '-Command', '{cmd}'",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    else:
+        script = (
+            'tell application "Terminal"\n'
+            "    activate\n"
+            f'    do script "cd {path} && cat .ipprime_prompt.txt | claude -p --dangerously-skip-permissions"\n'
+            "end tell"
+        )
+        await asyncio.create_subprocess_exec(
+            "osascript", "-e", script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
     recently_built.append({"name": name, "path": path, "time": time.time()})
     return f"On it, sir. Claude Code is working in {name}."
@@ -1574,24 +1678,28 @@ async def handle_show_recent() -> str:
         await open_browser(f"file://{html_files[0]}")
         return f"Opened {html_files[0].name} from {last['name']}, sir."
 
-    # Fall back to opening the folder in Finder
-    script = f'tell application "Finder"\nactivate\nopen POSIX file "{last["path"]}"\nend tell'
-    await asyncio.create_subprocess_exec("osascript", "-e", script, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    return f"Opened the {last['name']} folder in Finder, sir."
+    # Fall back to opening the folder
+    if sys.platform == "win32":
+        await asyncio.create_subprocess_exec("explorer.exe", last["path"])
+        return f"Opened the {last['name']} folder in Explorer, sir."
+    else:
+        script = f'tell application "Finder"\nactivate\nopen POSIX file "{last["path"]}"\nend tell'
+        await asyncio.create_subprocess_exec("osascript", "-e", script, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        return f"Opened the {last['name']} folder in Finder, sir."
 
 
 # ---------------------------------------------------------------------------
 # Background lookup system — spawns slow tasks, reports back via voice
 # ---------------------------------------------------------------------------
 
-# Track active lookups so JARVIS can report status
+# Track active lookups so IP Prime can report status
 _active_lookups: dict[str, dict] = {}  # id -> {"type": str, "status": str, "started": float}
 
 
 async def _lookup_and_report(lookup_type: str, lookup_fn, ws, history: list[dict] = None, voice_state: dict = None):
     """Run a slow lookup, then speak the result back.
 
-    JARVIS stays conversational — this runs completely off the main path.
+    IP Prime stays conversational — this runs completely off the main path.
     """
     lookup_id = str(uuid.uuid4())[:8]
     _active_lookups[lookup_id] = {
@@ -1629,7 +1737,7 @@ async def _lookup_and_report(lookup_type: str, lookup_fn, ws, history: list[dict
 
         log.info(f"Lookup {lookup_type} complete: {result_text[:80]}")
 
-        # Store lookup result in conversation history so JARVIS remembers it
+        # Store lookup result in conversation history so IP Prime remembers it
         if history is not None:
             history.append({"role": "assistant", "content": f"[{lookup_type} check]: {result_text}"})
 
@@ -1776,19 +1884,19 @@ async def handle_browse(text: str, target: str) -> str:
 async def handle_research(text: str, target: str, client: anthropic.AsyncAnthropic) -> str:
     """Deep research with Opus — write results to HTML, open in browser."""
     try:
-        research_response = await client.messages.create(
+        research_text = await call_llm(
+            client=client,
             model="claude-opus-4-6",
             max_tokens=2000,
-            system=f"You are JARVIS, researching a topic for {USER_NAME}. Be thorough, organized, and cite sources where possible.",
+            system=f"You are IP Prime, researching a topic for {USER_NAME}. Be thorough, organized, and cite sources where possible.",
             messages=[{"role": "user", "content": f"Research this thoroughly:\n\n{target}"}],
         )
-        research_text = research_response.content[0].text
 
         import html as _html
         html_content = f"""<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>JARVIS Research: {_html.escape(target[:60])}</title>
+<title>IP Prime Research: {_html.escape(target[:60])}</title>
 <style>
 body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #0a0a0a; color: #e0e0e0; line-height: 1.7; }}
 h1 {{ color: #0ea5e9; font-size: 1.4em; border-bottom: 1px solid #222; padding-bottom: 10px; }}
@@ -1802,23 +1910,24 @@ blockquote {{ border-left: 3px solid #0ea5e9; margin-left: 0; padding-left: 16px
 <h1>Research: {_html.escape(target[:80])}</h1>
 <div>{research_text.replace(chr(10), '<br>')}</div>
 <hr style="border-color:#222;margin-top:40px">
-<p style="color:#555;font-size:0.8em">Researched by JARVIS using Claude Opus &bull; {datetime.now().strftime('%B %d, %Y %I:%M %p')}</p>
+<p style="color:#555;font-size:0.8em">Researched by IP Prime using Claude Opus &bull; {datetime.now().strftime('%B %d, %Y %I:%M %p')}</p>
 </body></html>"""
 
-        results_file = Path.home() / "Desktop" / ".jarvis_research.html"
+        results_file = Path.home() / "Desktop" / ".ipprime_research.html"
         results_file.write_text(html_content)
 
         browser_name = "firefox" if "firefox" in text.lower() else "chrome"
         await open_browser(f"file://{results_file}", browser_name)
 
         # Short voice summary via Haiku
-        summary = await client.messages.create(
+        msg = await call_llm(
+            client=client,
             model="claude-haiku-4-5-20251001",
             max_tokens=80,
             system="Summarize this research in ONE sentence for voice. No markdown.",
             messages=[{"role": "user", "content": research_text[:2000]}],
         )
-        return summary.content[0].text + " Full results are in your browser, sir."
+        return msg + " Full results are in your browser, sir."
 
     except Exception as e:
         log.error(f"Research failed: {e}")
@@ -1845,12 +1954,13 @@ New messages to incorporate:
 Write an updated summary in 2-4 sentences capturing the key topics, decisions, and context. Be concise."""
 
     try:
-        response = await client.messages.create(
+        return await call_llm(
+            client=client,
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
+            system=None,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
     except Exception as e:
         log.warning(f"Summary update failed: {e}")
         return old_summary  # Keep old summary on failure
@@ -1860,19 +1970,8 @@ Write an updated summary in 2-4 sentences capturing the key topics, decisions, a
 
 @app.websocket("/ws/voice")
 async def voice_handler(ws: WebSocket):
-    """
-    WebSocket protocol:
-
-    Client -> Server:
-        {"type": "transcript", "text": "...", "isFinal": true}
-
-    Server -> Client:
-        {"type": "audio", "data": "<base64 mp3>", "text": "spoken text"}
-        {"type": "status", "state": "thinking"|"speaking"|"idle"|"working"}
-        {"type": "task_spawned", "task_id": "...", "prompt": "..."}
-        {"type": "task_complete", "task_id": "...", "summary": "..."}
-    """
     await ws.accept()
+    _active_websockets.append(ws)
     task_manager.register_websocket(ws)
     history: list[dict] = []
     work_session = WorkSession()
@@ -1900,15 +1999,19 @@ async def voice_handler(ws: WebSocket):
         # ── Greeting — always start in conversation mode ──
         now = datetime.now()
         hour = now.hour
-        if hour < 12:
-            greeting = "Good morning, sir."
-        elif hour < 17:
-            greeting = "Good afternoon, sir."
-        else:
-            greeting = "Good evening, sir."
+        cool_greetings = [
+            f"Good {('morning' if hour < 12 else 'afternoon' if hour < 17 else 'evening')}, sir. The IP Verse is stable. Standing by.",
+            "System online. Universe calibrated. Ready to build something legendary, sir?",
+            f"Authentication successful. Access granted to {USER_NAME}. All systems reporting optimal.",
+            f"Prime is operational. The IP Verse is at your fingertips. Shall we begin, {USER_NAME}?",
+            "Authorized access confirmed. Welcome to the core of the IP Verse, sir.",
+            "Neural link established. Your world is secure, sir. What are we orchestrating today?",
+            "All systems nominal. Neural links established. Ready to dominate, sir?"
+        ]
+        greeting = random.choice(cool_greetings)
 
         global _last_greeting_time
-        should_greet = (time.time() - _last_greeting_time) > 60
+        should_greet = (time.time() - _last_greeting_time) > 120
 
         if should_greet:
             _last_greeting_time = time.time()
@@ -1921,7 +2024,7 @@ async def voice_handler(ws: WebSocket):
                         await ws.send_json({"type": "status", "state": "speaking"})
                         await ws.send_json({"type": "audio", "data": encoded, "text": greeting})
                         history.append({"role": "assistant", "content": greeting})
-                        log.info(f"JARVIS: {greeting}")
+                        log.info(f"IP Prime: {greeting}")
                         await ws.send_json({"type": "status", "state": "idle"})
                 except Exception as e:
                     log.warning(f"Greeting failed: {e}")
@@ -1940,16 +2043,35 @@ async def voice_handler(ws: WebSocket):
             except json.JSONDecodeError:
                 continue
 
-            # ── Fix-self: activate work mode in JARVIS repo ──
+            # ── Fix-self: activate work mode in IP Prime repo ──
             if msg.get("type") == "fix_self":
-                jarvis_dir = str(Path(__file__).parent)
-                await work_session.start(jarvis_dir)
+                ipprime_dir = str(Path(__file__).parent)
+                await work_session.start(ipprime_dir)
                 response_text = "Work mode active in my own repo, sir. Tell me what needs fixing."
                 tts = strip_markdown_for_tts(response_text)
                 await ws.send_json({"type": "status", "state": "speaking"})
                 audio = await synthesize_speech(tts)
                 if audio:
                     await ws.send_json({"type": "audio", "data": audio, "text": response_text})
+                else:
+                    await ws.send_json({"type": "text", "text": response_text})
+                continue
+
+            # ── Startup Greeting: Say hello on launch ──
+            if msg.get("type") == "startup_greeting":
+                startup_options = [
+                    f"Prime online. Welcome back, {USER_NAME}. All systems are operational.",
+                    f"Authorized login detected. The IP Verse is now under your direct control, {USER_NAME}.",
+                    "System check complete. I'm ready to build, research, or innovate at your command, sir.",
+                    f"Welcome to the bridge, {USER_NAME}. How shall we manipulate the digital landscape today?",
+                    "Prime core activated. Standing by for your brilliance, sir."
+                ]
+                response_text = random.choice(startup_options)
+                tts = strip_markdown_for_tts(response_text)
+                await ws.send_json({"type": "status", "state": "speaking"})
+                audio = await synthesize_speech(tts)
+                if audio:
+                    await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": response_text})
                 else:
                     await ws.send_json({"type": "text", "text": response_text})
                 continue
@@ -2083,9 +2205,10 @@ async def voice_handler(ws: WebSocket):
                             log.info(f"Auto-opening {localhost_match.group(0)}")
 
                         # Always summarize work mode responses via Haiku
-                        if full_response and anthropic_client:
+                        if full_response:
                             try:
-                                summary = await anthropic_client.messages.create(
+                                response_text = await call_llm(
+                                    client=anthropic_client,
                                     model="claude-haiku-4-5-20251001",
                                     max_tokens=100,
                                     system=(
@@ -2098,7 +2221,6 @@ async def voice_handler(ws: WebSocket):
                                     ),
                                     messages=[{"role": "user", "content": f"Claude Code said:\n{full_response[:2000]}"}],
                                 )
-                                response_text = summary.content[0].text
                             except Exception:
                                 response_text = full_response[:200]
                         else:
@@ -2348,6 +2470,8 @@ async def voice_handler(ws: WebSocket):
     except Exception as e:
         log.error(f"WebSocket error: {e}", exc_info=True)
     finally:
+        if ws in _active_websockets:
+            _active_websockets.remove(ws)
         task_manager.unregister_websocket(ws)
 
 
@@ -2524,17 +2648,25 @@ async def api_fix_self():
     jarvis_dir = str(Path(__file__).parent)
     # The work_session is per-WebSocket, so we set a flag that the handler picks up
     # For now, also open Terminal so user can see
-    script = (
-        'tell application "Terminal"\n'
-        '    activate\n'
-        f'    do script "cd {jarvis_dir} && claude --dangerously-skip-permissions"\n'
-        'end tell'
-    )
-    await asyncio.create_subprocess_exec(
-        "osascript", "-e", script,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    if sys.platform == "win32":
+        cmd = f'cd "{jarvis_dir}"; claude --dangerously-skip-permissions'
+        await asyncio.create_subprocess_exec(
+            "powershell", "-Command", f"Start-Process powershell -ArgumentList '-NoExit', '-Command', '{cmd}'",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    else:
+        script = (
+            'tell application "Terminal"\n'
+            '    activate\n'
+            f'    do script "cd {jarvis_dir} && claude --dangerously-skip-permissions"\n'
+            'end tell'
+        )
+        await asyncio.create_subprocess_exec(
+            "osascript", "-e", script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
     log.info("Work mode: JARVIS repo opened for self-improvement")
     return {"status": "work_mode_active", "path": jarvis_dir}
 

@@ -11,6 +11,7 @@ import base64
 import json
 import logging
 import tempfile
+import sys
 from pathlib import Path
 
 log = logging.getLogger("jarvis.screen")
@@ -22,6 +23,8 @@ async def get_active_windows() -> list[dict]:
     Uses AppleScript + System Events to enumerate windows.
     Returns list of {"app": str, "title": str, "frontmost": bool}.
     """
+    if sys.platform == "win32":
+        return []  # Not supported on Windows yet
     # Use a simpler approach that's more permission-friendly
     script = """
 set windowList to ""
@@ -80,6 +83,8 @@ return windowList
 
 async def get_running_apps() -> list[str]:
     """Get list of running application names (visible only)."""
+    if sys.platform == "win32":
+        return []
     script = """
 tell application "System Events"
     set appNames to name of every application process whose visible is true
@@ -114,6 +119,8 @@ async def take_screenshot(display_only: bool = True) -> str | None:
     Returns:
         Base64-encoded PNG string, or None on failure.
     """
+    if sys.platform == "win32":
+        return None  # screencapture is macOS only
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         tmp_path = f.name
 

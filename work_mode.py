@@ -1,12 +1,12 @@
 """
-JARVIS Work Mode — persistent claude -p sessions tied to projects.
+IP Prime Work Mode — persistent claude -p sessions tied to projects.
 
-JARVIS can connect to any project directory and maintain a conversation
+IP Prime can connect to any project directory and maintain a conversation
 with Claude Code. Uses --continue to resume the most recent session
 in that directory, so context persists across messages.
 
 The user sees Claude Code working in their Terminal window.
-JARVIS reads the responses via subprocess, summarizes, and reports back.
+IP Prime reads the responses via subprocess, summarizes, and reports back.
 """
 
 import asyncio
@@ -15,7 +15,7 @@ import logging
 import shutil
 from pathlib import Path
 
-log = logging.getLogger("jarvis.work_mode")
+log = logging.getLogger("ipprime.work_mode")
 
 SESSION_FILE = Path(__file__).parent / "data" / "active_session.json"
 

@@ -20,7 +20,11 @@ let currentState: State = "idle";
 let isMuted = false;
 
 const statusEl = document.getElementById("status-text")!;
+const jarvisLabel = document.getElementById("jarvis-label")!;
 const errorEl = document.getElementById("error-text")!;
+
+const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+let sessionEndTime = Date.now() + SESSION_DURATION; 
 
 function showError(msg: string) {
   errorEl.textContent = msg;
@@ -32,12 +36,20 @@ function showError(msg: string) {
 
 function updateStatus(state: State) {
   const labels: Record<State, string> = {
-    idle: "",
-    listening: "listening...",
-    thinking: "thinking...",
-    speaking: "",
+    idle: "SYSTEM READY",
+    listening: "LISTENING...",
+    thinking: "THINKING...",
+    speaking: "SPEAKING",
   };
   statusEl.textContent = labels[state];
+  
+  const subLabels: Record<State, string> = {
+    idle: "Neural core stable",
+    listening: "Waiting for audio input",
+    thinking: "Processing neural pathways",
+    speaking: "Transmitting response",
+  };
+  jarvisLabel.textContent = subLabels[state];
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +110,8 @@ const voiceInput = createVoiceInput(
 // ---------------------------------------------------------------------------
 
 audioPlayer.onFinished(() => {
-  transition("idle");
+  // Permanently return to listening after speaking
+  transition("listening");
 });
 
 // ---------------------------------------------------------------------------
@@ -122,11 +135,19 @@ socket.onMessage((msg) => {
       transition("idle");
     }
     // Log text for debugging
-    if (msg.text) console.log("[JARVIS]", msg.text);
+    if (msg.text) console.log("[IP Prime]", msg.text);
+  } else if (type === "command_trigger") {
+    const text = msg.text as string;
+    console.log("[command] auto-triggering:", text);
+    socket.send({ type: "transcript", text, isFinal: true });
+    transition("thinking");
   } else if (type === "status") {
     const state = msg.state as string;
     if (state === "thinking" && currentState !== "thinking") {
       transition("thinking");
+    } else if (state === "listening") {
+      sessionEndTime = Date.now() + SESSION_DURATION;
+      if (currentState !== "listening") transition("listening");
     } else if (state === "working") {
       // Task spawned — show thinking with a different label
       transition("thinking");
@@ -141,8 +162,17 @@ socket.onMessage((msg) => {
     console.log("[task]", "spawned:", msg.task_id, msg.prompt);
   } else if (type === "task_complete") {
     console.log("[task]", "complete:", msg.task_id, msg.status, msg.summary);
+
   }
 });
+
+// Session check loop - return to idle if session expires
+setInterval(() => {
+  if (currentState === "listening" && sessionEndTime > 0 && Date.now() > sessionEndTime) {
+    sessionEndTime = 0;
+    transition("idle");
+  }
+}, 5000);
 
 // ---------------------------------------------------------------------------
 // Kick off
@@ -150,8 +180,8 @@ socket.onMessage((msg) => {
 
 // Start listening after a brief delay for the orb to render
 setTimeout(() => {
-  voiceInput.start();
-  transition("listening");
+  // Send a greeting request on startup
+  socket.send({ type: "startup_greeting" });
 }, 1000);
 
 // Resume AudioContext on ANY user interaction (browser autoplay policy)
@@ -233,3 +263,23 @@ btnSettings.addEventListener("click", (e) => {
 setTimeout(() => {
   checkFirstTimeSetup();
 }, 2000);
+
+// ---------------------------------------------------------------------------
+// Window Controls (Electron)
+// ---------------------------------------------------------------------------
+
+const btnMinimize = document.getElementById("btn-minimize")!;
+const btnMaximize = document.getElementById("btn-maximize")!;
+const btnClose = document.getElementById("btn-close")!;
+
+// Check if we're in Electron
+if (window.navigator.userAgent.indexOf('Electron') !== -1) {
+  const { ipcRenderer } = (window as any).require('electron');
+
+  btnMinimize.addEventListener("click", () => ipcRenderer.send('window-minimize'));
+  btnMaximize.addEventListener("click", () => ipcRenderer.send('window-maximize'));
+  btnClose.addEventListener("click", () => ipcRenderer.send('window-close'));
+} else {
+  // Hide controls if in browser
+  document.getElementById("window-controls")!.style.display = "none";
+}

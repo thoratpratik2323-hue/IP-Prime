@@ -3,37 +3,61 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>JARVIS</title>
+    <title>IP Prime</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <canvas id="orb-canvas"></canvas>
-
-    <!-- Minimal controls — top right -->
-    <div id="controls">
-      <button id="btn-mute" title="Mute/Unmute">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-          <line x1="12" y1="19" x2="12" y2="23"/>
-        </svg>
-      </button>
-      <button id="btn-menu" title="Menu">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-        </svg>
-      </button>
+    <!-- Electron Drag Region -->
+    <div id="title-bar">
+      <div id="drag-region"></div>
+      <div id="window-title">I.P. PRIME // NEURAL INTERFACE</div>
+      <div id="window-controls">
+        <button id="btn-minimize" class="control-btn">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="btn-maximize" class="control-btn">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+        </button>
+        <button id="btn-close" class="control-btn close">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
     </div>
 
-    <!-- Dropdown menu -->
-    <div id="menu-dropdown" style="display:none">
-      <button id="btn-settings">Settings</button>
-      <button id="btn-restart">Restart Server</button>
-      <button id="btn-fix-self">Fix Yourself</button>
-    </div>
+    <main id="app-container">
+      <div class="glass-overlay"></div>
+      <canvas id="orb-canvas"></canvas>
 
-    <div id="status-text"></div>
-    <div id="jarvis-label">JARVIS</div>
+      <!-- Center Content -->
+      <div id="center-content">
+        <div id="status-text">SYSTEM READY</div>
+        <div id="jarvis-label">Neural core stable</div>
+      </div>
+
+      <!-- Floating Controls -->
+      <div id="controls">
+        <button id="btn-mute" class="neon-btn" title="Mute/Unmute">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+          </svg>
+        </button>
+        <button id="btn-menu" class="neon-btn" title="Menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Dropdown menu -->
+      <div id="menu-dropdown" style="display:none">
+        <button id="btn-settings">Protocols</button>
+        <button id="btn-restart">Neural Reset</button>
+        <button id="btn-fix-self">Self Improvement</button>
+      </div>
+    </main>
+
     <div id="error-text"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

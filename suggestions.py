@@ -12,7 +12,7 @@ from typing import Optional
 
 from qa import QAResult
 
-log = logging.getLogger("jarvis.suggestions")
+log = logging.getLogger("ipprime.suggestions")
 
 # Web project indicators
 WEB_INDICATORS = {

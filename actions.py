@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import time
+import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
@@ -81,32 +82,47 @@ async def _revert_terminal_theme(profile_name: str):
 
 
 async def open_terminal(command: str = "") -> dict:
-    """Open Terminal.app and optionally run a command. Marks it blue for JARVIS."""
-    if command:
-        escaped = command.replace('"', '\\"')
-        script = (
-            'tell application "Terminal"\n'
-            "    activate\n"
-            f'    do script "{escaped}"\n'
-            "end tell"
-        )
+    """Open Terminal. Supports Windows (PowerShell) and macOS."""
+    import sys
+    success = False
+    if sys.platform == "win32":
+        if command:
+            proc = await asyncio.create_subprocess_exec(
+                "powershell", "-NoExit", "-Command", command,
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                "powershell",
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        success = True
     else:
-        script = (
-            'tell application "Terminal"\n'
-            "    activate\n"
-            "end tell"
+        # macOS implementation (original)
+        if command:
+            escaped = command.replace('"', '\\"')
+            script = (
+                'tell application "Terminal"\n'
+                "    activate\n"
+                f'    do script "{escaped}"\n'
+                "end tell"
+            )
+        else:
+            script = (
+                'tell application "Terminal"\n'
+                "    activate\n"
+                "end tell"
+            )
+        proc = await asyncio.create_subprocess_exec(
+            "osascript", "-e", script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-    proc = await asyncio.create_subprocess_exec(
-        "osascript", "-e", script,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    success = proc.returncode == 0
-    if not success:
-        log.error(f"open_terminal failed: {stderr.decode()}")
-    else:
-        await _mark_terminal_as_jarvis()
+        _, stderr = await proc.communicate()
+        success = proc.returncode == 0
+        if success:
+            await _mark_terminal_as_jarvis()
+
     return {
         "success": success,
         "confirmation": "Terminal is open, sir." if success else "I had trouble opening Terminal, sir.",
@@ -114,38 +130,21 @@ async def open_terminal(command: str = "") -> dict:
 
 
 async def open_browser(url: str, browser: str = "chrome") -> dict:
-    """Open URL in user's browser (Chrome or Firefox)."""
-    escaped_url = url.replace('"', '\\"')
+    """Open URL in user's browser."""
+    import webbrowser
+    import sys
+    
+    # Use webbrowser module for cross-platform support
+    try:
+        webbrowser.open(url)
+        success = True
+    except Exception:
+        success = False
 
-    if browser.lower() == "firefox":
-        app_name = "Firefox"
-        script = (
-            'tell application "Firefox"\n'
-            "    activate\n"
-            f'    open location "{escaped_url}"\n'
-            "end tell"
-        )
-    else:
-        app_name = "Chrome"
-        script = (
-            'tell application "Google Chrome"\n'
-            "    activate\n"
-            f'    open location "{escaped_url}"\n'
-            "end tell"
-        )
-
-    proc = await asyncio.create_subprocess_exec(
-        "osascript", "-e", script,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    success = proc.returncode == 0
-    if not success:
-        log.error(f"open_browser ({app_name}) failed: {stderr.decode()}")
+    app_name = "the browser"
     return {
         "success": success,
-        "confirmation": f"Pulled that up in {app_name}, sir." if success else f"{app_name} ran into a problem, sir.",
+        "confirmation": f"Pulled that up in {app_name}, sir." if success else f"The browser ran into a problem, sir.",
     }
 
 
@@ -155,34 +154,39 @@ async def open_chrome(url: str) -> dict:
 
 
 async def open_claude_in_project(project_dir: str, prompt: str) -> dict:
-    """Open Terminal, cd to project dir, run Claude Code interactively.
-
-    Writes the prompt to CLAUDE.md (which claude reads automatically on startup)
-    then launches claude in interactive mode with --dangerously-skip-permissions.
-    No prompt escaping needed — CLAUDE.md handles context delivery.
-    """
-    # Write prompt to CLAUDE.md — claude reads this automatically
+    """Open Terminal, cd to project dir, run Claude Code interactively."""
+    import sys
+    # Write prompt to CLAUDE.md
     claude_md = Path(project_dir) / "CLAUDE.md"
     claude_md.write_text(f"# Task\n\n{prompt}\n\nBuild this completely. If web app, make index.html work standalone.\n")
 
-    # Launch claude interactive — it reads CLAUDE.md on its own
-    script = (
-        'tell application "Terminal"\n'
-        "    activate\n"
-        f'    do script "cd {project_dir} && claude --dangerously-skip-permissions"\n'
-        "end tell"
-    )
-    proc = await asyncio.create_subprocess_exec(
-        "osascript", "-e", script,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    success = proc.returncode == 0
-    if not success:
-        log.error(f"open_claude_in_project failed: {stderr.decode()}")
+    success = False
+    if sys.platform == "win32":
+        # Launch powershell and run claude
+        cmd = f"cd '{project_dir}'; claude --dangerously-skip-permissions"
+        proc = await asyncio.create_subprocess_exec(
+            "powershell", "-NoExit", "-Command", cmd,
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+        )
+        success = True
     else:
-        await _mark_terminal_as_jarvis()
+        # macOS implementation (original)
+        script = (
+            'tell application "Terminal"\n'
+            "    activate\n"
+            f'    do script "cd {project_dir} && claude --dangerously-skip-permissions"\n'
+            "end tell"
+        )
+        proc = await asyncio.create_subprocess_exec(
+            "osascript", "-e", script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        success = proc.returncode == 0
+        if success:
+            await _mark_terminal_as_jarvis()
+
     return {
         "success": success,
         "confirmation": "Claude Code is running in Terminal, sir. You can watch the progress."

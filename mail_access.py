@@ -10,6 +10,7 @@ No send, delete, move, or modify functions exist by design.
 
 import asyncio
 import logging
+import sys
 from datetime import datetime
 
 log = logging.getLogger("jarvis.mail")
@@ -19,6 +20,8 @@ _mail_launched = False
 
 async def _ensure_mail_running():
     """Launch Mail.app if not already running."""
+    if sys.platform == "win32":
+        return
     global _mail_launched
     if _mail_launched:
         return
@@ -53,6 +56,8 @@ async def _ensure_mail_running():
 
 async def _run_mail_script(script: str, timeout: float = 20) -> str:
     """Run an AppleScript against Mail.app and return output."""
+    if sys.platform == "win32":
+        return ""
     await _ensure_mail_running()
     try:
         proc = await asyncio.create_subprocess_exec(
