@@ -1,5 +1,5 @@
 """
-JARVIS QA Agent — Verifies Claude Code task output.
+IP_PRIME QA Agent — Verifies Claude Code task output.
 
 Spawns a claude -p subprocess to check completed work, auto-retries on failure.
 """
@@ -11,7 +11,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Optional
 
-log = logging.getLogger("jarvis.qa")
+log = logging.getLogger("ipprime.qa")
 
 MAX_RETRIES = 3
 

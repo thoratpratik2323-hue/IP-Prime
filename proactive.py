@@ -22,7 +22,7 @@ from typing import Callable, Optional
 
 import psutil
 
-log = logging.getLogger("jarvis.proactive")
+log = logging.getLogger("ipprime.proactive")
 
 # ---------------------------------------------------------------------------
 # Alert Thresholds

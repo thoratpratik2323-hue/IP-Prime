@@ -1,5 +1,5 @@
 """
-JARVIS Apple Notes Access — READ + CREATE ONLY.
+IP_PRIME Apple Notes Access — READ + CREATE ONLY.
 
 Can read existing notes and create new ones.
 CANNOT edit or delete existing notes (safety).
@@ -9,7 +9,7 @@ import asyncio
 import logging
 import sys
 
-log = logging.getLogger("jarvis.notes")
+log = logging.getLogger("ipprime.notes")
 
 
 async def _run_notes_script(script: str, timeout: float = 10) -> str:

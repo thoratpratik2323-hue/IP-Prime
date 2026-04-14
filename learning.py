@@ -1,5 +1,5 @@
 """
-JARVIS Usage Learning — Tracks request patterns and pre-loads context.
+IP_PRIME Usage Learning — Tracks request patterns and pre-loads context.
 
 Identifies what tasks the user requests most, which projects are active,
 and suggests relevant context based on patterns.
@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-log = logging.getLogger("jarvis.learning")
+log = logging.getLogger("ipprime.learning")
 
-DB_PATH = Path(__file__).parent / "jarvis_data.db"
+DB_PATH = Path(__file__).parent / "ipprime_data.db"
 
 
 @dataclass

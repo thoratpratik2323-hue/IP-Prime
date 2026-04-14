@@ -1,5 +1,5 @@
 /**
- * Voice input (Web Speech API) and audio output (AudioContext) for JARVIS.
+ * Voice input (Web Speech API) and audio output (AudioContext) for IP_PRIME.
  */
 
 // ---------------------------------------------------------------------------

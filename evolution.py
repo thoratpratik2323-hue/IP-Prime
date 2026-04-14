@@ -1,5 +1,5 @@
 """
-JARVIS Template Evolution — Analyzes failures and generates improved template versions.
+IP_PRIME Template Evolution — Analyzes failures and generates improved template versions.
 
 Looks at success/failure data, identifies patterns, and creates new template
 versions incorporating improvements.
@@ -15,10 +15,10 @@ from typing import Optional
 
 import yaml
 
-log = logging.getLogger("jarvis.evolution")
+log = logging.getLogger("ipprime.evolution")
 
 TEMPLATES_DIR = Path(__file__).parent / "templates" / "prompts"
-DB_PATH = Path(__file__).parent / "jarvis_data.db"
+DB_PATH = Path(__file__).parent / "ipprime_data.db"
 
 # Common failure patterns and their fixes
 FAILURE_PATTERNS = {

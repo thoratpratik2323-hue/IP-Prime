@@ -1,5 +1,5 @@
 """
-JARVIS Mail Access — READ-ONLY access to Apple Mail.
+IP_PRIME Mail Access — READ-ONLY access to Apple Mail.
 
 Any accounts synced to Mail.app (Gmail, iCloud, Exchange, etc.)
 are automatically available. No OAuth needed.
@@ -13,7 +13,7 @@ import logging
 import sys
 from datetime import datetime
 
-log = logging.getLogger("jarvis.mail")
+log = logging.getLogger("ipprime.mail")
 
 _mail_launched = False
 

@@ -1,13 +1,13 @@
 """
-JARVIS Memory & Planning — persistent context, tasks, notes, and smart routing.
+IP_PRIME Memory & Planning — persistent context, tasks, notes, and smart routing.
 
 Three systems:
-1. Memory — facts, preferences, project context JARVIS learns from conversations
+1. Memory — facts, preferences, project context IP_PRIME learns from conversations
 2. Tasks — to-do items with priority, due dates, project association
 3. Notes — freeform context tied to projects, people, or topics
 
 Everything stored in SQLite. Relevant memories injected into every LLM call
-so JARVIS gets smarter over time.
+so IP_PRIME gets smarter over time.
 """
 
 import json
@@ -17,9 +17,9 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-log = logging.getLogger("jarvis.memory")
+log = logging.getLogger("ipprime.memory")
 
-DB_PATH = Path(__file__).parent / "data" / "jarvis.db"
+DB_PATH = Path(__file__).parent / "data" / "ipprime.db"
 
 
 def _get_db() -> sqlite3.Connection:
@@ -100,7 +100,7 @@ def init_db():
 
 
 # ---------------------------------------------------------------------------
-# Memories — facts JARVIS learns
+# Memories — facts IP_PRIME learns
 # ---------------------------------------------------------------------------
 
 def remember(content: str, mem_type: str = "fact", source: str = "", importance: int = 5) -> int:
@@ -451,7 +451,7 @@ def format_plan_for_voice(tasks: list[dict], events: list[dict]) -> str:
 # Memory extraction — learn from conversations
 # ---------------------------------------------------------------------------
 
-async def extract_memories(user_text: str, jarvis_response: str, anthropic_client) -> list[str]:
+async def extract_memories(user_text: str, ipprime_response: str, anthropic_client) -> list[str]:
     """After a conversation turn, extract any facts worth remembering and their links.
 
     Uses Haiku to decide if anything in the exchange is worth storing and how it relates to existing topics.
@@ -475,7 +475,7 @@ async def extract_memories(user_text: str, jarvis_response: str, anthropic_clien
                 "\"links\": [{\"source_content\": \"...\", \"target_id\": <recent_id>, \"rel\": \"belongs_to|related_to\"}]} "
                 "Be extremely selective. Return empty lists if nothing new."
             ),
-            messages=[{"role": "user", "content": f"User: {user_text}\nJARVIS: {jarvis_response}"}],
+            messages=[{"role": "user", "content": f"User: {user_text}\nIP_PRIME: {ipprime_response}"}],
         )
 
         data = json.loads(response.content[0].text.strip())

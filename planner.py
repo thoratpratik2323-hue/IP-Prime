@@ -1,5 +1,5 @@
 """
-JARVIS Task Planner — Conversational planning before spawning Claude Code.
+IP_PRIME Task Planner — Conversational planning before spawning Claude Code.
 
 Handles:
 1. Planning mode detection (distinguish "build me X" from "what time is it")
@@ -19,7 +19,7 @@ import anthropic
 from templates import TEMPLATES, get_template
 from utils_llm import call_llm
 
-log = logging.getLogger("jarvis.planner")
+log = logging.getLogger("ipprime.planner")
 
 DESKTOP_PATH = Path.home() / "Desktop"
 

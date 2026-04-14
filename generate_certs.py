@@ -18,7 +18,7 @@ def generate_self_signed_cert(cert_path, key_path):
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"US"),
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"California"),
         x509.NameAttribute(NameOID.LOCALITY_NAME, u"San Francisco"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"JARVIS"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"IP_PRIME"),
         x509.NameAttribute(NameOID.COMMON_NAME, u"localhost"),
     ])
     

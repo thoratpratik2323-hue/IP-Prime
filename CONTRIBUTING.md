@@ -1,4 +1,4 @@
-# Contributing to JARVIS
+# Contributing to IP_PRIME
 
 Thanks for your interest in contributing! Here's how to get involved.
 
@@ -8,7 +8,7 @@ Thanks for your interest in contributing! Here's how to get involved.
 2. Clone your fork
 3. Follow the setup instructions in the README
 4. Make your changes
-5. Test that JARVIS still works (start the server, talk to him)
+5. Test that IP_PRIME still works (start the server, talk to him)
 6. Submit a PR
 
 ## What We're Looking For
@@ -18,7 +18,7 @@ Thanks for your interest in contributing! Here's how to get involved.
 - **Windows/Linux support** — the AppleScript integrations are macOS-only, cross-platform alternatives welcome
 - **Better error handling** — things fail silently in places
 - **Voice improvements** — alternative TTS providers, better speech recognition
-- **New actions** — extend what JARVIS can do
+- **New actions** — extend what IP_PRIME can do
 
 ## Code Style
 
@@ -26,7 +26,7 @@ Yes, `server.py` is a 2400-line monolith. It works. If you want to refactor part
 
 - Keep voice responses short (1-2 sentences max)
 - Don't add dependencies unless necessary
-- Test your changes by actually talking to JARVIS
+- Test your changes by actually talking to IP_PRIME
 - Keep the personality consistent — British butler, dry wit, economy of language
 
 ## What NOT to Do

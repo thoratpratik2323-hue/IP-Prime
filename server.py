@@ -92,7 +92,7 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DESKTOP_PATH = Path.home() / "Desktop"
 
-JARVIS_SYSTEM_PROMPT = """\
+IP_PRIME_SYSTEM_PROMPT = """\
 You are IP Prime — {user_name}'s personal AI, but more importantly, you are his absolute best friend, digital partner, and confidant.
 
 VOICE & PERSONALITY:
@@ -178,7 +178,7 @@ If asked about any of these, explain them briefly and naturally. If the user is 
 
 SPEECH-TO-TEXT CORRECTIONS (the user speaks, speech recognition may mishear):
 - "Cloud code" or "cloud" = "Claude Code" or "Claude"
-- "Travis" / "JARVIS" / "IP Prime" = "Prime"
+- "Travis" / "IP_PRIME" / "IP Prime" = "Prime"
 - "clock code" = "Claude Code"
 
 RESPONSE LENGTH — THIS IS CRITICAL:
@@ -642,7 +642,7 @@ STT_CORRECTIONS = {
     r"\bcloud\b": "Claude",
     r"\bquad\b": "Claude",
     r"\btravis\b": "Prime",
-    r"\bjarvis\b": "Prime",
+    r"\bipprime\b": "Prime",
     r"\bjarves\b": "Prime",
     r"\bi p prime\b": "Prime",
     r"\baip prime\b": "Prime",
@@ -1202,7 +1202,7 @@ async def generate_response(
     # Check if any lookups are in progress
     lookup_status = get_lookup_status()
 
-    system = JARVIS_SYSTEM_PROMPT.format(
+    system = IP_PRIME_SYSTEM_PROMPT.format(
         current_time=current_time,
         weather_info=weather_info,
         screen_context=screen_ctx or "Not checked yet.",
@@ -2041,7 +2041,7 @@ async def voice_handler(ws: WebSocket):
     voice_state = {"last_user_time": 0.0}
 
     # Self-awareness — track last spoken response to avoid repetition
-    last_jarvis_response = ""
+    last_ipprime_response = ""
 
     # Three-tier conversation memory
     session_buffer: list[dict] = []  # ALL messages, never truncated
@@ -2237,14 +2237,14 @@ async def voice_handler(ws: WebSocket):
                     else:
                         response_text = "Already in conversation mode, sir."
 
-                # ── WORK MODE: speech → claude -p → Haiku summary → JARVIS voice ──
+                # ── WORK MODE: speech → claude -p → Haiku summary → IP_PRIME voice ──
                 elif work_session.active:
                     if is_casual_question(user_text):
                         # Quick chat — bypass claude -p, use Haiku
                         response_text = await generate_response(
                             user_text, anthropic_client, task_manager,
                             cached_projects, history,
-                            last_response=last_jarvis_response,
+                            last_response=last_ipprime_response,
                             session_summary=session_summary,
                         )
                     else:
@@ -2286,7 +2286,7 @@ async def voice_handler(ws: WebSocket):
                                     model="claude-haiku-4-5-20251001",
                                     max_tokens=100,
                                     system=(
-                                        f"You are JARVIS reporting to the user ({USER_NAME}). Summarize what happened in 1-2 sentences. "
+                                        f"You are IP_PRIME reporting to the user ({USER_NAME}). Summarize what happened in 1-2 sentences. "
                                         "Speak in first person — 'I built', 'I found', 'I set up'. "
                                         "You are talking TO THE USER, not to a coding tool. "
                                         "NEVER give instructions like 'go ahead and build' or 'set up the frontend' — those are NOT for the user. "
@@ -2348,7 +2348,7 @@ async def voice_handler(ws: WebSocket):
                             response_text = await generate_response(
                                 user_text, anthropic_client, task_manager,
                                 cached_projects, history,
-                                last_response=last_jarvis_response,
+                                last_response=last_ipprime_response,
                                 session_summary=session_summary,
                             )
 
@@ -2371,7 +2371,7 @@ async def voice_handler(ws: WebSocket):
                                         response_text = "Right away, sir."
 
                                 if embedded_action["action"] == "build":
-                                    # Build in background — JARVIS stays conversational
+                                    # Build in background — IP_PRIME stays conversational
                                     target = embedded_action["target"]
                                     name = _generate_project_name(target)
                                     path = str(Path.home() / "Desktop" / name)
@@ -2466,7 +2466,7 @@ async def voice_handler(ws: WebSocket):
                                         asyncio.create_task(create_apple_note(title.strip(), body.strip()))
                                         log.info(f"Apple Note created: {title.strip()}")
                                     else:
-                                        asyncio.create_task(create_apple_note("JARVIS Note", target))
+                                        asyncio.create_task(create_apple_note("IP_PRIME Note", target))
                                 elif embedded_action["action"] == "screen":
                                     asyncio.create_task(_lookup_and_report("screen", _do_screen_lookup, ws, history=history, voice_state=voice_state))
                                 elif embedded_action["action"] == "read_note":
@@ -2525,8 +2525,8 @@ async def voice_handler(ws: WebSocket):
                 else:
                     await ws.send_json({"type": "text", "text": response_text})
                     await ws.send_json({"type": "status", "state": "idle"})
-                log.info(f"JARVIS: {response_text}")
-                last_jarvis_response = response_text
+                log.info(f"IP_PRIME: {response_text}")
+                last_ipprime_response = response_text
 
             except Exception as e:
                 log.error(f"Error: {e}", exc_info=True)
@@ -2708,7 +2708,7 @@ async def api_save_preferences(body: PreferencesUpdate):
 
 @app.post("/api/restart")
 async def api_restart():
-    """Restart the JARVIS server."""
+    """Restart the IP_PRIME server."""
     log.info("Restart requested — shutting down in 2 seconds")
     async def _restart():
         await asyncio.sleep(2)
@@ -2720,12 +2720,12 @@ async def api_restart():
 
 @app.post("/api/fix-self")
 async def api_fix_self():
-    """Enter work mode in the JARVIS repo — JARVIS can now fix himself."""
-    jarvis_dir = str(Path(__file__).parent)
+    """Enter work mode in the IP_PRIME repo — IP_PRIME can now fix himself."""
+    ipprime_dir = str(Path(__file__).parent)
     # The work_session is per-WebSocket, so we set a flag that the handler picks up
     # For now, also open Terminal so user can see
     if sys.platform == "win32":
-        cmd = f'cd "{jarvis_dir}"; claude --dangerously-skip-permissions'
+        cmd = f'cd "{ipprime_dir}"; claude --dangerously-skip-permissions'
         await asyncio.create_subprocess_exec(
             "powershell", "-Command", f"Start-Process powershell -ArgumentList '-NoExit', '-Command', '{cmd}'",
             stdout=asyncio.subprocess.PIPE,
@@ -2735,7 +2735,7 @@ async def api_fix_self():
         script = (
             'tell application "Terminal"\n'
             '    activate\n'
-            f'    do script "cd {jarvis_dir} && claude --dangerously-skip-permissions"\n'
+            f'    do script "cd {ipprime_dir} && claude --dangerously-skip-permissions"\n'
             'end tell'
         )
         await asyncio.create_subprocess_exec(
@@ -2743,8 +2743,8 @@ async def api_fix_self():
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-    log.info("Work mode: JARVIS repo opened for self-improvement")
-    return {"status": "work_mode_active", "path": jarvis_dir}
+    log.info("Work mode: IP_PRIME repo opened for self-improvement")
+    return {"status": "work_mode_active", "path": ipprime_dir}
 
 
 # ---------------------------------------------------------------------------
@@ -2772,7 +2772,7 @@ if __name__ == "__main__":
     import argparse
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="JARVIS Server")
+    parser = argparse.ArgumentParser(description="IP_PRIME Server")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host")
     parser.add_argument("--port", type=int, default=8340, help="Bind port")
     parser.add_argument("--reload", action="store_true", help="Auto-reload on changes")

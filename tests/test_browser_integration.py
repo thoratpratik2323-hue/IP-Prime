@@ -1,5 +1,5 @@
 """
-Browser integration tests for JARVIS.
+Browser integration tests for IP_PRIME.
 
 Exercises the browser pipeline: search, visit, screenshot.
 Skips if no network or Playwright browsers not installed.
@@ -18,7 +18,7 @@ import pytest_asyncio
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from browser import JarvisBrowser, SearchResult, PageContent
+from browser import IP PrimeBrowser, SearchResult, PageContent
 
 
 def _has_network() -> bool:
@@ -37,7 +37,7 @@ SKIP_REASON = "No network or Playwright browsers not available"
 @pytest_asyncio.fixture
 async def browser():
     """Create and clean up a browser instance."""
-    b = JarvisBrowser()
+    b = IP PrimeBrowser()
     yield b
     await b.close()
 
@@ -106,7 +106,7 @@ async def test_browser_visit_invalid_url(browser):
 @pytest.mark.skipif(not NETWORK_AVAILABLE, reason=SKIP_REASON)
 async def test_browser_screenshot(browser):
     """Screenshot produces a valid PNG file."""
-    tmp_path = tempfile.mktemp(suffix=".png", prefix="jarvis_test_ss_")
+    tmp_path = tempfile.mktemp(suffix=".png", prefix="ipprime_test_ss_")
 
     try:
         result_path = await browser.screenshot("https://example.com", path=tmp_path)
@@ -177,6 +177,6 @@ def test_browse_action_keywords():
 @pytest.mark.asyncio
 async def test_browser_close_idempotent():
     """Closing browser multiple times should not error."""
-    b = JarvisBrowser()
+    b = IP PrimeBrowser()
     await b.close()
     await b.close()  # Should not raise

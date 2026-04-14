@@ -1,5 +1,5 @@
 """
-JARVIS Proactive Suggestions — Contextual follow-up suggestions after task completion.
+IP_PRIME Proactive Suggestions — Contextual follow-up suggestions after task completion.
 
 Generates at most 1 voice-friendly suggestion per completed task based on
 simple heuristics (file checks, not LLM calls).
@@ -27,7 +27,7 @@ TEST_DIRS = {"test", "tests", "__tests__", "spec", "specs"}
 @dataclass
 class Suggestion:
     """A proactive follow-up suggestion."""
-    text: str  # Voice-friendly suggestion (JARVIS personality)
+    text: str  # Voice-friendly suggestion (IP_PRIME personality)
     action_type: str  # favicon, tests, readme, related, quality
     action_details: dict  # Details for executing the suggestion
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 from utils_llm import call_llm
 
-log = logging.getLogger("jarvis.codereview")
+log = logging.getLogger("ipprime.codereview")
 
 CODE_REVIEW_SYSTEM = """You are Prime's AI Code Reviewer — an elite senior engineer.
 You review code with ruthless precision and zero fluff.

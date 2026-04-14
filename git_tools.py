@@ -8,7 +8,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-log = logging.getLogger("jarvis.git")
+log = logging.getLogger("ipprime.git")
 
 async def run_git(args: list[str], cwd: str) -> tuple[bool, str]:
     """Helper to run git commands safely."""

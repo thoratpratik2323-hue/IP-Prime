@@ -56,7 +56,7 @@ TEST_CASES = [
     ("how are you doing today", "chat"),
     ("what time is it", "chat"),
     ("tell me a joke", "chat"),
-    ("good morning JARVIS", "chat"),
+    ("good morning IP_PRIME", "chat"),
     ("what's the weather like", "chat"),
 ]
 

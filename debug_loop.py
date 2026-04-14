@@ -10,7 +10,7 @@ import subprocess
 from typing import Optional
 from utils_llm import call_llm
 
-log = logging.getLogger("jarvis.debug")
+log = logging.getLogger("ipprime.debug")
 
 class AutoDebugLoop:
     """Runs a command and fixes it automatically if it fails."""

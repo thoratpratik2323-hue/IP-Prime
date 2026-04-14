@@ -11,7 +11,7 @@ from typing import Optional, List, Dict
 import asyncio
 from utils_llm import call_llm
 
-log = logging.getLogger("jarvis.agents")
+log = logging.getLogger("ipprime.agents")
 
 @dataclass
 class AgentRole:

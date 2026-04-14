@@ -1,5 +1,5 @@
 """
-JARVIS Calendar Access — read Apple Calendar via AppleScript.
+IP_PRIME Calendar Access — read Apple Calendar via AppleScript.
 
 Strategy: fetch all events per-calendar in parallel (bulk property access),
 filter dates in Python. Results cached and refreshed in background.
@@ -13,7 +13,7 @@ import time as _time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-log = logging.getLogger("jarvis.calendar")
+log = logging.getLogger("ipprime.calendar")
 
 # Calendars to scan — set CALENDAR_ACCOUNTS env var to a comma-separated list,
 # or leave empty to auto-discover ALL calendars from Apple Calendar.

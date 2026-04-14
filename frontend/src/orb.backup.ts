@@ -1,5 +1,5 @@
 /**
- * JARVIS — Floating particle field.
+ * IP_PRIME — Floating particle field.
  *
  * Tiny pinpoint dots drifting in 3D space. Think: stars in slow motion,
  * or bioluminescent plankton in dark water.

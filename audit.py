@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-log = logging.getLogger("jarvis.audit")
+log = logging.getLogger("ipprime.audit")
 
 AUDIT_DB_PATH = Path(__file__).parent / "data" / "audit.db"
 

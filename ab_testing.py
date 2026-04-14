@@ -1,5 +1,5 @@
 """
-JARVIS A/B Testing — Template version selection and experiment tracking.
+IP_PRIME A/B Testing — Template version selection and experiment tracking.
 
 Randomly assigns template versions for the same task type,
 tracks which version was used, and calculates success rates per version.
@@ -17,10 +17,10 @@ from typing import Optional
 
 import yaml
 
-log = logging.getLogger("jarvis.ab_testing")
+log = logging.getLogger("ipprime.ab_testing")
 
 TEMPLATES_DIR = Path(__file__).parent / "templates" / "prompts"
-DB_PATH = Path(__file__).parent / "jarvis_data.db"
+DB_PATH = Path(__file__).parent / "ipprime_data.db"
 
 # Minimum tasks per version before declaring a winner
 MIN_TASKS_FOR_WINNER = 20

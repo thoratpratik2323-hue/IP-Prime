@@ -73,7 +73,7 @@
 
 1. **Initialize**: I clone my repo.
 2. **Fuel**: I check my `.env` paths and API keys.
-3. **Launch**: I run `./start_jarvis.vbs` to bring the beast to life.
+3. **Launch**: I run `./start_prime.vbs` to bring the beast to life.
 4. **Command**: I simply say "**Prime**". 
 
 ---

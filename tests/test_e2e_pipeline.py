@@ -1,5 +1,5 @@
 """
-End-to-end pipeline test for the JARVIS intelligence layer.
+End-to-end pipeline test for the IP_PRIME intelligence layer.
 
 Exercises the full pipeline: planning mode detection -> prompt assembly ->
 QA verification -> success tracking.
@@ -28,7 +28,7 @@ from templates import get_template
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for test artifacts."""
-    d = tempfile.mkdtemp(prefix="jarvis_test_")
+    d = tempfile.mkdtemp(prefix="ipprime_test_")
     yield d
     shutil.rmtree(d, ignore_errors=True)
 

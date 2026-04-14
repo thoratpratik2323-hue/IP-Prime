@@ -1,5 +1,5 @@
 /**
- * JARVIS — Main entry point.
+ * IP_PRIME — Main entry point.
  *
  * Wires together the orb visualization, WebSocket communication,
  * speech recognition, and audio playback into a single experience.
@@ -20,7 +20,7 @@ let currentState: State = "idle";
 let isMuted = false;
 
 const statusEl = document.getElementById("status-text")!;
-const jarvisLabel = document.getElementById("jarvis-label")!;
+const ipprimeLabel = document.getElementById("ipprime-label")!;
 const errorEl = document.getElementById("error-text")!;
 
 const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
@@ -49,7 +49,7 @@ function updateStatus(state: State) {
     thinking: "Processing neural pathways",
     speaking: "Transmitting response",
   };
-  jarvisLabel.textContent = subLabels[state];
+  ipprimeLabel.textContent = subLabels[state];
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ function transition(newState: State) {
 
 const voiceInput = createVoiceInput(
   (text: string) => {
-    // Cancel any current JARVIS response before sending new input
+    // Cancel any current IP_PRIME response before sending new input
     audioPlayer.stop();
     // User spoke — send transcript
     socket.send({ type: "transcript", text, isFinal: true });
@@ -157,7 +157,7 @@ socket.onMessage((msg) => {
     }
   } else if (type === "text") {
     // Text fallback when TTS fails
-    console.log("[JARVIS]", msg.text);
+    console.log("[IP_PRIME]", msg.text);
   } else if (type === "task_spawned") {
     console.log("[task]", "spawned:", msg.task_id, msg.prompt);
   } else if (type === "task_complete") {
@@ -246,7 +246,7 @@ btnRestart.addEventListener("click", async (e) => {
 btnFixSelf.addEventListener("click", (e) => {
   e.stopPropagation();
   menuDropdown.style.display = "none";
-  // Activate work mode on the WebSocket session (JARVIS becomes Claude Code's voice)
+  // Activate work mode on the WebSocket session (IP_PRIME becomes Claude Code's voice)
   socket.send({ type: "fix_self" });
   statusEl.textContent = "entering work mode...";
 });

@@ -1,5 +1,5 @@
 """
-JARVIS Prompt Templates — Structured prompts for Claude Code tasks.
+IP_PRIME Prompt Templates — Structured prompts for Claude Code tasks.
 
 Each template is a format string with named placeholders.
 Templates are matched by task type and optionally by keyword analysis.

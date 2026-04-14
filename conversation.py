@@ -1,5 +1,5 @@
 """
-JARVIS Conversation Intelligence — Multi-turn planning sessions.
+IP_PRIME Conversation Intelligence — Multi-turn planning sessions.
 
 Tracks decisions, manages planning context, and supports mid-conversation
 plan modifications across multiple exchanges.
@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Optional
 
-log = logging.getLogger("jarvis.conversation")
+log = logging.getLogger("ipprime.conversation")
 
 CONTEXT_WINDOW_MAX = 20
 SESSION_TIMEOUT_SECONDS = 300  # 5 minutes
@@ -193,7 +193,7 @@ class PlanningSession:
         if self.context_window:
             lines.append("RECENT EXCHANGES:")
             for ex in self.context_window[-6:]:  # Last 6 messages
-                role = "USER" if ex["role"] == "user" else "JARVIS"
+                role = "USER" if ex["role"] == "user" else "IP_PRIME"
                 lines.append(f"  {role}: {ex['content'][:200]}")
 
         return "\n".join(lines)

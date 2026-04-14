@@ -1,5 +1,5 @@
 """
-JARVIS Screen Awareness — see what's on the user's screen.
+IP_PRIME Screen Awareness — see what's on the user's screen.
 
 Two capabilities:
 1. Window/app list via AppleScript (fast, text-based)
@@ -14,7 +14,7 @@ import tempfile
 import sys
 from pathlib import Path
 
-log = logging.getLogger("jarvis.screen")
+log = logging.getLogger("ipprime.screen")
 
 
 async def get_active_windows() -> list[dict]:
@@ -171,7 +171,7 @@ async def describe_screen(anthropic_client) -> str:
                 model="claude-haiku-4-5-20251001",
                 max_tokens=300,
                 system=(
-                    "You are JARVIS analyzing a screenshot of the user's desktop. "
+                    "You are IP_PRIME analyzing a screenshot of the user's desktop. "
                     "Describe what you see concisely: which apps are open, what the user "
                     "appears to be working on, any notable content visible. "
                     "Be specific about app names, file names, URLs, code, or documents visible. "
@@ -225,7 +225,7 @@ async def describe_screen(anthropic_client) -> str:
                 model="claude-haiku-4-5-20251001",
                 max_tokens=100,
                 system=(
-                    "You are JARVIS. Given the user's open windows and apps, summarize "
+                    "You are IP_PRIME. Given the user's open windows and apps, summarize "
                     "what they appear to be working on in 1-2 sentences. Natural voice, no markdown."
                 ),
                 messages=[{"role": "user", "content": "Open windows:\n" + "\n".join(context_parts)}],

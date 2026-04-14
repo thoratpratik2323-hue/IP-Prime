@@ -1,7 +1,7 @@
-# JARVIS — Voice AI Assistant
+# IP_PRIME — Voice AI Assistant
 
 ## Overview
-JARVIS (Just A Rather Very Intelligent System) is a voice-first AI assistant for macOS. It runs locally on your machine, connecting to your Apple Calendar, Mail, Notes, and can spawn Claude Code sessions for development tasks.
+IP_PRIME (Just A Rather Very Intelligent System) is a voice-first AI assistant for macOS. It runs locally on your machine, connecting to your Apple Calendar, Mail, Notes, and can spawn Claude Code sessions for development tasks.
 
 ## Quick Start
 When a user clones this repo and starts Claude Code, help them:
@@ -14,14 +14,14 @@ When a user clones this repo and starts Claude Code, help them:
 7. Run the backend: python server.py
 8. Run the frontend: cd frontend && npm run dev
 9. Open Chrome to http://localhost:5173
-10. Click to enable audio, speak to JARVIS
+10. Click to enable audio, speak to IP_PRIME
 
 ## Architecture
 - **Backend**: FastAPI + Python (server.py, ~2300 lines)
 - **Frontend**: Vite + TypeScript + Three.js (audio-reactive orb)
 - **Communication**: WebSocket (JSON messages + binary audio)
 - **AI**: Claude Haiku for fast responses, Claude Opus for research
-- **TTS**: Fish Audio with JARVIS voice model
+- **TTS**: Fish Audio with IP_PRIME voice model
 - **System**: AppleScript for Calendar, Mail, Notes, Terminal integration
 
 ## Key Files
@@ -41,11 +41,11 @@ When a user clones this repo and starts Claude Code, help them:
 - `ANTHROPIC_API_KEY` (required) — Claude API access
 - `FISH_API_KEY` (required) — Fish Audio TTS
 - `FISH_VOICE_ID` (optional) — Voice model ID
-- `USER_NAME` (optional) — Your name for JARVIS to use
+- `USER_NAME` (optional) — Your name for IP_PRIME to use
 - `CALENDAR_ACCOUNTS` (optional) — Comma-separated calendar emails
 
 ## Conventions
-- JARVIS personality: British butler, dry wit, economy of language
+- IP_PRIME personality: British butler, dry wit, economy of language
 - Max 1-2 sentences per voice response
 - Action tags: [ACTION:BUILD], [ACTION:BROWSE], [ACTION:RESEARCH], etc.
 - AppleScript for all macOS integrations (no OAuth needed)

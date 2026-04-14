@@ -1,5 +1,5 @@
 /**
- * JARVIS — Settings Panel
+ * IP_PRIME — Settings Panel
  *
  * Overlay panel for API keys, connection status, preferences, and system info.
  * Slides in from the right with glass-morphism styling.

@@ -1,5 +1,5 @@
 /**
- * JARVIS — Multi-mode particle visualization.
+ * IP_PRIME — Multi-mode particle visualization.
  *
  * Floating particles with line connections between nearby ones.
  * Lines fade in/out based on state. Transition tumble on state change.
