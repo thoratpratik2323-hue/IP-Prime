@@ -1,6 +1,9 @@
 const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 
+// Allow audio to autoplay without clicking the window first
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1000,

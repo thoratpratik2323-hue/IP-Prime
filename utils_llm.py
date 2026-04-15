@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import anthropic
 from typing import Optional, List, Dict, Any
@@ -38,14 +39,19 @@ async def call_llm(
             # Map common Claude models to NVIDIA equivalents if needed
             # For now, just use NVIDIA_MODEL_NAME
             
-            response = await nv_client.chat.completions.create(
-                model=NVIDIA_MODEL_NAME,
-                messages=openai_messages,
-                temperature=temperature,
-                top_p=0.7,
-                max_tokens=max_tokens,
+            response = await asyncio.wait_for(
+                nv_client.chat.completions.create(
+                    model=NVIDIA_MODEL_NAME,
+                    messages=openai_messages,
+                    temperature=temperature,
+                    top_p=0.7,
+                    max_tokens=max_tokens,
+                ),
+                timeout=8.0  # Fail fast to Claude fallback if NIM is slow
             )
             return response.choices[0].message.content
+        except asyncio.TimeoutError:
+            log.warning("NVIDIA NIM timed out after 8s — falling back to Claude")
         except Exception as e:
             log.error(f"NVIDIA API Error: {e}")
             if not client:

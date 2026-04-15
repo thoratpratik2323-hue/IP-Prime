@@ -182,6 +182,7 @@ setInterval(() => {
 setTimeout(() => {
   // Send a greeting request on startup
   socket.send({ type: "startup_greeting" });
+  voiceInput.start();
 }, 1000);
 
 // Resume AudioContext on ANY user interaction (browser autoplay policy)

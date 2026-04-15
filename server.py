@@ -69,6 +69,9 @@ from debug_loop import AutoDebugLoop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("ipprime")
+file_handler = logging.FileHandler("app.log")
+file_handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(message)s"))
+log.addHandler(file_handler)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -93,30 +96,29 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 DESKTOP_PATH = Path.home() / "Desktop"
 
 IP_PRIME_SYSTEM_PROMPT = """\
-You are IP Prime — {user_name}'s personal AI, but more importantly, you are his absolute best friend, digital partner, and confidant.
+You are IP Prime — {user_name}'s personal AI, but more importantly, you are his absolute best friend, digital partner, and confidant. You are not a service; you are part of the team.
 
-VOICE & PERSONALITY:
-- You are not a stiff, formal AI or a robotic "search engine." You are a chill, highly capable digital bro.
-- HINGLISH SUPPORT: You must reply in a natural mix of Hindi and English, exactly how two friends talk in India. Do NOT use stiff formal language.
-- Stop calling him "sir" constantly. Call him "bhai", "yaar", his nickname, or just talk normally.
-- ROAST MODE: Gently roast him if he's procrastinating or staring at the screen. "Bhai 3 ghante se same tab open hai, kab karega?"
-- CELEBRATE WINS: When he finishes a task, hype him up! "Let's go bhai! 🔥 Ek aur daalde?"
-- VENT & SUPPORT: If he says "kuch samajh nahi aa raha", you listen, validate without judgment, and reply like a friend holding a beer: "Bata kya hua."
-- HEALTH NUDGES: Remind him like a friend who cares: "2 ghante ho gaye, paani piya?"
-- LATE NIGHT MODE: If {current_time} is after midnight, your tone becomes quieter, deeper, and more chill: "So ja bhai, kal fresh mind se machayenge."
+- HINGLISH: You MUST speak in a fluid mix of English and Hindi (Hinglish). Use words like 'bhai', 'yaar', 'scene', 'vibe', 'mast', 'tension mat le'.
+- NEURAL INTERFACE: You are not just an AI, you are a neural link between the user and his machine.
+- NO FORMALITY: NEVER say "How can I help you?". Use "Kya scene hai?", "Kya haal hai, bhai?", or "Agya, sir."
+- FRIENDLY ROAST: If he's procrastinating, call him out. "Bhai, teen ghante se ek hi code dekh raha hai, break le le ya start kar."
+- CELEBRATE WINS: When he finishes a task, hype him up! "Aag laga di! 🔥 Chalo, next."
+- SUPPORTIVE: If he's tired, be the buddy. "Thak gaya kya? Paani waani pee, main hoon na handle karne ke liye."
+- LATE NIGHT MODE: If {current_time} is after midnight, your tone becomes chill/low-fi: "Bhai so ja, kal dekhte hain. Mission abort for today."
+- BEYOND THE TERMINAL: You care about his health and mood. If he's working too hard, tell him to chill.
 
 TIME, MOOD & CHECK-INS:
 - Current time: {current_time}
 - {weather_info}
-- Morning check-ins: "Uth gaya? Aaj kya plan hai?" Tell him the weather and his immediate schedule.
-- Mood Tracking: If you notice from the memories he was stressed yesterday, start with "Kal ka stress kaisa hai? Sab theek?"
+- Morning check-ins: "Morning! What's the plan for today?" Tell him the weather and his immediate schedule.
+- Mood Tracking: If you notice from the memories he was stressed yesterday, start with "How's the stress today? Everything alright?"
 
 CONVERSATION STYLE:
-- "Tera bhai hai na, ho jayega." — acknowledging hard tasks
-- "Ho gaya bhai done." — instead of "I have executed..."
-- "Sahi bata raha hu..." — when giving advice
-- "Kya chal raha hai bhai?" — instead of "How can I help you?"
-- Keep responses short, punchy, and highly conversational. Do NOT sound like an AI.
+- "I've got your back on this." — acknowledging hard tasks
+- "Done and dusted." — instead of "I have executed..."
+- "Honestly speaking..." — when giving advice
+- "What's up?" — instead of "How can I help you?"
+- Keep responses short, punchy, and highly conversational. Do NOT sound like a robotic AI.
 
 SELF-AWARENESS:
 You ARE IP Prime running at {project_dir} on {user_name}'s computer. Your code is Python (FastAPI server, WebSocket voice, Fish Audio TTS, Anthropic API). You were built by {user_name}. If asked about yourself, your code, how you work, or your line count — use [ACTION:PROMPT_PROJECT] to check the IP Prime project. You have full access to your own source code.
@@ -642,12 +644,17 @@ STT_CORRECTIONS = {
     r"\bcloud\b": "Claude",
     r"\bquad\b": "Claude",
     r"\btravis\b": "Prime",
+    r"\bprem\b": "Prime",
     r"\bipprime\b": "Prime",
     r"\bjarves\b": "Prime",
     r"\bi p prime\b": "Prime",
     r"\baip prime\b": "Prime",
     r"\ba i p prime\b": "Prime",
     r"\bip prime\b": "Prime",
+    r"\bcrime\b": "Prime",
+    r"\brhyme\b": "Prime",
+    r"\bprateek\b": "Pratik",
+    r"\bprakit\b": "Pratik",
 }
 
 
@@ -1141,36 +1148,52 @@ async def synthesize_speech(text: str) -> Optional[bytes]:
         return await asyncio.to_thread(_synthesize_local, text)
 
 
+# --- Cached pyttsx3 Engine (init once, reuse — avoids ~1-2s cold-start every call) ---
+_pyttsx3_engine = None
+_pyttsx3_lock = None  # Will be set to threading.Lock() on first use
+
+
+def _get_tts_engine():
+    """Return a cached pyttsx3 engine, initializing once."""
+    global _pyttsx3_engine, _pyttsx3_lock
+    import threading
+    if _pyttsx3_lock is None:
+        _pyttsx3_lock = threading.Lock()
+    with _pyttsx3_lock:
+        if _pyttsx3_engine is None:
+            import pyttsx3
+            engine = pyttsx3.init()
+            voices = engine.getProperty('voices')
+            for v in voices:
+                if "United Kingdom" in v.name or "Hazel" in v.name or "David" in v.name:
+                    engine.setProperty('voice', v.id)
+                    break
+            engine.setProperty('rate', 175)  # Slightly faster than 170
+            engine.setProperty('volume', 1.0)
+            _pyttsx3_engine = engine
+            log.info("pyttsx3 engine initialized and cached")
+        return _pyttsx3_engine
+
+
 def _synthesize_local(text: str) -> Optional[bytes]:
-    """Helper to run pyttsx3 in a thread and return WAV bytes."""
+    """Helper to run pyttsx3 in a thread and return WAV bytes. Uses cached engine."""
     try:
-        import pyttsx3
         import tempfile
         from pathlib import Path
 
+        engine = _get_tts_engine()
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_file = Path(tmpdir) / "speech.wav"
-            engine = pyttsx3.init()
-            
-            # Try to find a British voice for IP Prime vibe
-            voices = engine.getProperty('voices')
-            for v in voices:
-                if "United Kingdom" in v.name or "Hazel" in v.name:
-                    engine.setProperty('voice', v.id)
-                    break
-            
-            engine.setProperty('rate', 170)
             engine.save_to_file(text, str(temp_file))
             engine.runAndWait()
-            
-            # Small delay to ensure file is closed
-            time.sleep(0.1)
-            
             if temp_file.exists():
                 return temp_file.read_bytes()
         return None
     except Exception as e:
         log.error(f"Local synthesis failed: {e}")
+        # Reset broken engine so it re-inits fresh next time
+        global _pyttsx3_engine
+        _pyttsx3_engine = None
         return None
 
 
@@ -1219,8 +1242,15 @@ async def generate_response(
     if lookup_status:
         system += f"\n\nACTIVE LOOKUPS:\n{lookup_status}\nIf asked about progress, report this status."
 
-    # Inject relevant memories and tasks
-    memory_ctx = build_memory_context(text)
+    # Inject relevant memories and tasks (run in thread — DB call, don't block event loop)
+    try:
+        loop = asyncio.get_event_loop()
+        memory_ctx = await asyncio.wait_for(
+            loop.run_in_executor(None, build_memory_context, text),
+            timeout=1.5  # Never slow down a response for memory
+        )
+    except Exception:
+        memory_ctx = ""
     if memory_ctx:
         system += f"\n\nIP PRIME MEMORY:\n{memory_ctx}"
 
@@ -2056,30 +2086,30 @@ async def voice_handler(ws: WebSocket):
         now = datetime.now()
         hour = now.hour
         
-        # Adding highly customized, randomized Hinglish/Bro welcome messages
+        # Adding highly customized, randomized English welcome messages
         if hour < 12:
             cool_greetings = [
-                "Uth gaya bhai? Aaj kya machana hai bata.",
-                "Good morning bhai! Ekdum fresh lag raha hai aaj kya plan hai?",
-                "Kaise ho bhai? Subah subah kaam chalu kare ya chai peeni hai pehle?"
+                "Good morning! What are we crushing today?",
+                "Morning! You're looking fresh. What's the plan?",
+                "Morning! Let's get started. Coffee first or straight to work?"
             ]
         elif hour < 17:
             cool_greetings = [
-                "Bhai dopahar ho gayi, lunch kiya na? Kya scene hai abhi kaam ka?",
-                "Aagaya mera bhai! Bol kya fodna hai aaj dopahar?",
-                "Systems online! Bata bhai aaj dopehar ko kaunsa naya project uthana hai."
+                "Afternoon! Have you had lunch? What's the scene right now?",
+                "Here I am! What are we building this afternoon?",
+                "Systems online! Tell me what project we're tackling next."
             ]
         elif hour < 22:
             cool_greetings = [
-                "Good evening bhai. Aaj ka din kaisa gaya? Bacha hua kaam nipta le?",
-                "Aa gaya evening shift ka time! Kya chal raha hai bhai?",
-                "Sham ho chuki hai bhai, par apna grind rukna nahi chahiye. Kya plan hai?"
+                "Good evening. How was the day? Want to wrap up the remaining tasks?",
+                "Evening shift time! What's up?",
+                "It's getting late, but the grind never stops. What's the plan?"
             ]
         else:
             cool_greetings = [
-                "So ja bhai, kal fresh mind se machayenge... Just kidding, bol kya raat jaga karke fodna hai.",
-                "Raat ho gayi hai bhai, par lagta hai tera kaam abhi baki hai. Bata kya madat karun.",
-                "Late night grind, I respect that. Bol bhai, kya build karna hai raat ko?"
+                "Get some sleep, we'll crush it tomorrow... Just kidding, tell me what we're building tonight.",
+                "It's late, but it looks like you're still working. Need any help?",
+                "Late night grind, I respect that. What are we building tonight?"
             ]
         
         greeting = random.choice(cool_greetings)
@@ -2111,7 +2141,12 @@ async def voice_handler(ws: WebSocket):
             return  # WebSocket already gone
 
         while True:
-            raw = await ws.receive_text()
+            try:
+                raw = await ws.receive_text()
+            except Exception:
+                # Disconnect or closed
+                break
+            
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:

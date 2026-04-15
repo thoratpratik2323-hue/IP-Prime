@@ -78,8 +78,8 @@ class ProactiveAgent:
                     elif time.time() - self._cpu_high_since > 30:
                         # Sustained for 30s → alert
                         await self.alert(
-                            f"Heads up, sir. CPU has been at {cpu:.0f}% for over 30 seconds. "
-                            "Something is burning. Want me to check what's running?"
+                            f"Bhai, CPU {cpu:.0f}% hit kar raha hai sustained. "
+                            "Kuch toh gadbad hai. Check karun kya system mein?"
                         )
                         self._cpu_high_since = None  # reset so we don't spam
                 else:
@@ -89,8 +89,8 @@ class ProactiveAgent:
                 now = time.time()
                 if ram > RAM_WARN_PCT and (now - self._last_ram_warn) > 300:
                     await self.alert(
-                        f"RAM is at {ram:.0f}%, sir. You're running hot. "
-                        "Want me to kill some background processes?"
+                        f"RAM {ram:.0f}% pe hai, yaar. System kaafi heavy ho gaya hai. "
+                        "Thode background process khatam karun?"
                     )
                     self._last_ram_warn = now
 
@@ -109,8 +109,8 @@ class ProactiveAgent:
 
                 if free_gb < DISK_WARN_GB and (now - self._last_disk_warn) > 3600:
                     await self.alert(
-                        f"Disk space is dangerously low, sir. Only {free_gb:.1f}GB remaining. "
-                        "I can scan and suggest what to clean up."
+                        f"Bhai, disk space khatam hone waali hai! Only {free_gb:.1f}GB bacha hai. "
+                        "Faltu caches saaf karun kya?"
                     )
                     self._last_disk_warn = now
 
