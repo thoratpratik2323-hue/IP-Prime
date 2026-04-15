@@ -64,13 +64,9 @@ async def call_llm(
     if not client:
         raise ValueError("No LLM client or API keys available.")
 
-    # Model mapping - ensure we use valid Anthropic models
-    if "haiku" in model.lower():
-        anthropic_model = "claude-3-5-haiku-20241022"
-    elif "opus" in model.lower():
-        anthropic_model = "claude-3-opus-20240229"
-    else:
-        anthropic_model = "claude-3-5-sonnet-20241022"
+    # Pass through the model ID — callers already specify correct slugs
+    # (e.g., "claude-haiku-4-5-20251001", "claude-3-5-sonnet-20241022")
+    anthropic_model = model
 
     try:
         response = await client.messages.create(

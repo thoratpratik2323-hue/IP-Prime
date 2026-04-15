@@ -667,48 +667,10 @@ def apply_speech_corrections(text: str) -> str:
     return result
 
 
-# ---------------------------------------------------------------------------
-# LLM Intent Classifier (replaces keyword-based action detection)
-# ---------------------------------------------------------------------------
+# NOTE: classify_intent() was removed — it was dead code.
+# All intent routing is handled by detect_action_fast() (keyword-based, zero-latency)
+# plus the LLM's inline [ACTION:X] tags in generate_response().
 
-async def classify_intent(text: str, client: anthropic.AsyncAnthropic) -> dict:
-    """Classify every user message using Haiku LLM.
-
-    Returns: {"action": "open_terminal|browse|build|chat", "target": "description"}
-    """
-    try:
-        raw = await call_llm(
-            client=client,
-            model="claude-haiku-4-5-20251001",
-            max_tokens=100,
-            system=(
-                "Classify this voice command. The user is talking to IP Prime, an AI assistant that can:\n"
-                "- Open Terminal and run Claude Code (coding AI tool)\n"
-                "- Open Chrome browser for web searches and URLs\n"
-                "- Build software projects via Claude Code in Terminal\n"
-                "- Research topics by opening Chrome search\n\n"
-                "Note: speech-to-text may produce errors like \"Cloud\" for \"Claude\", "
-                "\"Travis\" for \"IP Prime\", \"clock code\" for \"Claude Code\".\n\n"
-                "Return ONLY valid JSON: {\"action\": \"open_terminal|browse|build|chat\", "
-                "\"target\": \"description of what to do\"}\n"
-                "open_terminal = user wants to open terminal or launch Claude Code\n"
-                "browse = user wants to search the web, look something up, visit a URL\n"
-                "build = user wants to create/build a software project\n"
-                "chat = just conversation, questions, or anything else\n"
-                "If unclear, default to \"chat\"."
-            ),
-            messages=[{"role": "user", "content": text}],
-        )
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        data = json.loads(raw)
-        return {
-            "action": data.get("action", "chat"),
-            "target": data.get("target", text),
-        }
-    except Exception as e:
-        log.warning(f"Intent classification failed: {e}")
-        return {"action": "chat", "target": text}
 
 
 # ---------------------------------------------------------------------------
@@ -905,9 +867,31 @@ async def _execute_research(target: str, ws=None):
 
 
 async def _focus_terminal_window(project_name: str):
-    """Bring a Terminal window matching the project name to front."""
-    escaped = project_name.replace('"', '\\"')
-    script = f'''
+    """Bring a Terminal/PowerShell window matching the project name to front."""
+    try:
+        if sys.platform == "win32":
+            # Windows: Use PowerShell to find and activate a matching window
+            escaped = project_name.replace("'", "''")
+            ps_script = (
+                f"$w = Get-Process powershell, WindowsTerminal -ErrorAction SilentlyContinue "
+                f"| Where-Object {{$_.MainWindowTitle -like '*{escaped}*'}} "
+                f"| Select-Object -First 1; "
+                f"if ($w) {{ "
+                f"  Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;"
+                f"  public class WinAPI{{[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);}}'; "
+                f"  [WinAPI]::SetForegroundWindow($w.MainWindowHandle) "
+                f"}}"
+            )
+            proc = await asyncio.create_subprocess_exec(
+                "powershell", "-Command", ps_script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5)
+        else:
+            # macOS: Use AppleScript
+            escaped = project_name.replace('"', '\\"')
+            script = f'''
 tell application "Terminal"
     repeat with w in windows
         if name of w contains "{escaped}" then
@@ -918,13 +902,12 @@ tell application "Terminal"
     end repeat
 end tell
 '''
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "osascript", "-e", script,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await asyncio.wait_for(proc.communicate(), timeout=5)
+            proc = await asyncio.create_subprocess_exec(
+                "osascript", "-e", script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5)
     except Exception:
         pass
 
@@ -1821,7 +1804,7 @@ async def _lookup_and_report(lookup_type: str, lookup_fn, ws, history: list[dict
             try:
                 await ws.send_json({"type": "status", "state": "speaking"})
                 if audio:
-                    await ws.send_json({"type": "audio", "data": audio, "text": result_text})
+                    await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": result_text})
                 else:
                     await ws.send_json({"type": "text", "text": result_text})
                 await ws.send_json({"type": "status", "state": "idle"})
@@ -2168,7 +2151,7 @@ async def voice_handler(ws: WebSocket):
                 await ws.send_json({"type": "status", "state": "speaking"})
                 audio = await synthesize_speech(tts)
                 if audio:
-                    await ws.send_json({"type": "audio", "data": audio, "text": response_text})
+                    await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": response_text})
                 else:
                     await ws.send_json({"type": "text", "text": response_text})
                 continue
