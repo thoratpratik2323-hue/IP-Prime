@@ -24,7 +24,7 @@ async def get_active_windows() -> list[dict]:
     Returns list of {"app": str, "title": str, "frontmost": bool}.
     """
     if sys.platform == "win32":
-        return []  # Not supported on Windows yet
+        return await _get_windows_active_windows()
     # Use a simpler approach that's more permission-friendly
     script = """
 set windowList to ""
@@ -84,7 +84,17 @@ return windowList
 async def get_running_apps() -> list[str]:
     """Get list of running application names (visible only)."""
     if sys.platform == "win32":
-        return []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "powershell", "-Command",
+                "Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object -ExpandProperty ProcessName -Unique",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            return [a.strip() for a in stdout.decode(errors='ignore').strip().split("\n") if a.strip()]
+        except Exception:
+            return []
     script = """
 tell application "System Events"
     set appNames to name of every application process whose visible is true
@@ -120,7 +130,7 @@ async def take_screenshot(display_only: bool = True) -> str | None:
         Base64-encoded PNG string, or None on failure.
     """
     if sys.platform == "win32":
-        return None  # screencapture is macOS only
+        return await _take_screenshot_windows()
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         tmp_path = f.name
 
@@ -254,3 +264,67 @@ def format_windows_for_context(windows: list[dict]) -> str:
         marker = " (active)" if w["frontmost"] else ""
         lines.append(f"  - {w['app']}: {w['title']}{marker}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Windows-specific helpers
+# ---------------------------------------------------------------------------
+
+async def _take_screenshot_windows() -> str | None:
+    """Take a screenshot on Windows using Pillow (PIL). Returns base64 PNG."""
+    try:
+        from PIL import ImageGrab
+        import io
+
+        # Run in thread to avoid blocking the event loop
+        def _capture():
+            img = ImageGrab.grab()
+            # Resize to max 1920px wide to save bandwidth + API tokens
+            if img.width > 1920:
+                ratio = 1920 / img.width
+                img = img.resize((1920, int(img.height * ratio)))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG", optimize=True)
+            return base64.b64encode(buf.getvalue()).decode()
+
+        result = await asyncio.to_thread(_capture)
+        log.info(f"Windows screenshot captured ({len(result)} chars b64)")
+        return result
+    except ImportError:
+        log.warning("Pillow not installed — cannot take screenshots. Run: pip install Pillow")
+        return None
+    except Exception as e:
+        log.warning(f"Windows screenshot error: {e}")
+        return None
+
+
+async def _get_windows_active_windows() -> list[dict]:
+    """Get visible windows on Windows using PowerShell."""
+    try:
+        ps_script = (
+            "Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | "
+            "ForEach-Object { $_.ProcessName + '|||' + $_.MainWindowTitle } "
+        )
+        proc = await asyncio.create_subprocess_exec(
+            "powershell", "-Command", ps_script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        windows = []
+        for line in stdout.decode(errors='ignore').strip().split("\n"):
+            parts = line.strip().split("|||")
+            if len(parts) >= 2:
+                windows.append({
+                    "app": parts[0].strip(),
+                    "title": parts[1].strip(),
+                    "frontmost": False,  # First one is usually foreground
+                })
+        # Mark the first window as frontmost (best approximation)
+        if windows:
+            windows[0]["frontmost"] = True
+        return windows
+    except Exception as e:
+        log.warning(f"Windows get_active_windows error: {e}")
+        return []
+

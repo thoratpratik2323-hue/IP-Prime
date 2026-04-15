@@ -1091,6 +1091,74 @@ _last_greeting_time: float = 0
 
 
 # ---------------------------------------------------------------------------
+# Streaming TTS — split response into sentences, TTS+send each chunk
+# ---------------------------------------------------------------------------
+
+import re as _sentence_re
+
+def _split_into_sentences(text: str) -> list[str]:
+    """Split text into speakable sentences. Handles abbreviations gracefully."""
+    # Split on sentence-ending punctuation followed by a space or end of string
+    parts = _sentence_re.split(r'(?<=[.!?])\s+', text.strip())
+    # Merge very short fragments back into previous sentence
+    sentences = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if sentences and len(part) < 15 and not part.endswith(('.', '!', '?')):
+            sentences[-1] += ' ' + part
+        else:
+            sentences.append(part)
+    return sentences if sentences else [text]
+
+
+async def synthesize_and_send_streaming(
+    text: str,
+    ws,
+    full_text: str = None,
+) -> None:
+    """Split text into sentences, TTS each, and send audio chunks.
+    
+    The frontend's audioPlayer.enqueue() handles queuing multiple chunks.
+    First audio arrives much faster than waiting for full TTS.
+    """
+    if full_text is None:
+        full_text = text
+    
+    sentences = _split_into_sentences(text)
+    
+    if len(sentences) <= 1:
+        # Short response — just send as one chunk (no benefit to splitting)
+        audio = await synthesize_speech(text)
+        if audio:
+            await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": full_text})
+        else:
+            await ws.send_json({"type": "text", "text": full_text})
+        return
+    
+    # Stream: TTS each sentence and send as it's ready
+    first_sent = False
+    for sentence in sentences:
+        try:
+            audio = await synthesize_speech(sentence)
+            if audio:
+                payload = {"type": "audio", "data": base64.b64encode(audio).decode()}
+                # Only include full text on the first chunk (for display)
+                if not first_sent:
+                    payload["text"] = full_text
+                    first_sent = True
+                await ws.send_json(payload)
+        except Exception as e:
+            log.warning(f"Streaming TTS chunk failed: {e}")
+            break
+    
+    # If no audio was sent at all, fallback to text
+    if not first_sent:
+        await ws.send_json({"type": "text", "text": full_text})
+
+
+# ---------------------------------------------------------------------------
 # TTS (Fish Audio)
 # ---------------------------------------------------------------------------
 
@@ -2049,9 +2117,20 @@ async def voice_handler(ws: WebSocket):
     await ws.accept()
     _active_websockets.append(ws)
     task_manager.register_websocket(ws)
-    history: list[dict] = []
     work_session = WorkSession()
     planner = TaskPlanner()
+
+    # --- Persistent Chat History ---
+    from chat_history import start_session, save_message, load_recent_messages, load_last_session_summary, end_session
+    chat_session_id = start_session()
+    
+    # Load previous history so Prime remembers across reconnects
+    history: list[dict] = load_recent_messages(limit=20)
+    if history:
+        log.info(f"Restored {len(history)} messages from previous sessions")
+    
+    # Load last session summary for continuity
+    prev_summary = load_last_session_summary()
 
     # Response cancellation — when new input arrives, cancel current response
     _current_response_id = 0
@@ -2065,7 +2144,7 @@ async def voice_handler(ws: WebSocket):
 
     # Three-tier conversation memory
     session_buffer: list[dict] = []  # ALL messages, never truncated
-    session_summary: str = ""  # Rolling summary of older conversation
+    session_summary: str = prev_summary  # Start with last session's summary
     summary_update_pending: bool = False
     messages_since_last_summary: int = 0
 
@@ -2514,6 +2593,10 @@ async def voice_handler(ws: WebSocket):
                 # Update history
                 history.append({"role": "user", "content": user_text})
                 history.append({"role": "assistant", "content": response_text})
+                
+                # Persist to SQLite
+                save_message(chat_session_id, "user", user_text)
+                save_message(chat_session_id, "assistant", response_text)
 
                 # Three-tier memory: also track in session buffer
                 session_buffer.append({"role": "user", "content": user_text})
@@ -2541,15 +2624,10 @@ async def voice_handler(ws: WebSocket):
                 if anthropic_client and len(user_text) > 15:
                     asyncio.create_task(extract_memories(user_text, response_text, anthropic_client))
 
-                # TTS
+                # Streaming TTS — split into sentences, send each chunk
                 tts = strip_markdown_for_tts(response_text)
                 await ws.send_json({"type": "status", "state": "speaking"})
-                audio = await synthesize_speech(tts)
-                if audio:
-                    await ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": response_text})
-                else:
-                    await ws.send_json({"type": "text", "text": response_text})
-                    await ws.send_json({"type": "status", "state": "idle"})
+                await synthesize_and_send_streaming(tts, ws, full_text=response_text)
                 log.info(f"IP_PRIME: {response_text}")
                 last_ipprime_response = response_text
 
@@ -2571,6 +2649,12 @@ async def voice_handler(ws: WebSocket):
     except Exception as e:
         log.error(f"WebSocket error: {e}", exc_info=True)
     finally:
+        # Save session summary before closing
+        try:
+            end_session(chat_session_id, session_summary)
+            log.info(f"Chat session {chat_session_id} saved ({len(history)} messages)")
+        except Exception:
+            pass
         if ws in _active_websockets:
             _active_websockets.remove(ws)
         task_manager.unregister_websocket(ws)
