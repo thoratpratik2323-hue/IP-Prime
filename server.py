@@ -1177,24 +1177,31 @@ def _get_tts_engine():
 
 def _synthesize_local(text: str) -> Optional[bytes]:
     """Helper to run pyttsx3 in a thread and return WAV bytes. Uses cached engine."""
-    try:
-        import tempfile
-        from pathlib import Path
+    import tempfile, os
+    from pathlib import Path
 
+    # Use a named temp file (not TemporaryDirectory) — avoids WinError 32
+    # Windows holds a file lock during pyttsx3 runAndWait, so we can't delete
+    # the parent directory until after we've read the bytes.
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav", prefix="ipprime_tts_")
+    os.close(tmp_fd)  # Close the FD so pyttsx3 can write to it
+    try:
         engine = _get_tts_engine()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            temp_file = Path(tmpdir) / "speech.wav"
-            engine.save_to_file(text, str(temp_file))
-            engine.runAndWait()
-            if temp_file.exists():
-                return temp_file.read_bytes()
-        return None
+        engine.save_to_file(text, tmp_path)
+        engine.runAndWait()
+        data = Path(tmp_path).read_bytes()
+        return data if data else None
     except Exception as e:
         log.error(f"Local synthesis failed: {e}")
         # Reset broken engine so it re-inits fresh next time
         global _pyttsx3_engine
         _pyttsx3_engine = None
         return None
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass  # Best-effort cleanup; file may still be locked briefly
 
 
 # ---------------------------------------------------------------------------
